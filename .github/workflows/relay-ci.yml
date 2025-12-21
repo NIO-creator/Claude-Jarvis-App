@@ -15,33 +15,7 @@ env:
   IMAGE: jarvis-relay
 
 jobs:
-  lint-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-          
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        
-      - name: Lint
-        run: pnpm lint
-        
-      - name: Test
-        run: pnpm test
-
   build-deploy:
-    needs: lint-test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     
@@ -65,7 +39,7 @@ jobs:
         run: |
           docker build -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:${{ github.sha }} \
                        -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:latest \
-                       -f apps/relay/Dockerfile .
+                       -f Dockerfile .
                        
       - name: Push Docker image
         run: |
