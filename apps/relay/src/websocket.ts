@@ -19,7 +19,7 @@ export function registerWebSocket(app: FastifyInstance) {
             app.log.info('WebSocket client disconnected');
         });
 
-        socket.on('error', (err) => {
+        socket.on('error', (err: Error) => {
             app.log.error({ err }, 'WebSocket error');
         });
 
