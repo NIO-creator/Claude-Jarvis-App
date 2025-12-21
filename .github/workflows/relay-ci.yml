@@ -1,0 +1,89 @@
+name: Relay CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PROJECT_ID: gemini-overseer
+  REGION: europe-west1
+  REGISTRY: europe-west1-docker.pkg.dev
+  REPOSITORY: jarvis-overseer-mvp
+  SERVICE: jarvis-relay-mvp
+  IMAGE: jarvis-relay
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        
+      - name: Lint
+        run: pnpm lint
+        
+      - name: Test
+        run: pnpm test
+
+  build-deploy:
+    needs: lint-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    permissions:
+      contents: read
+      id-token: write
+      
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/794024916030/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions@gemini-overseer.iam.gserviceaccount.com
+          
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+        
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:${{ github.sha }} \
+                       -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:latest \
+                       -f apps/relay/Dockerfile .
+                       
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:latest
+          
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:${{ github.sha }}
+          flags: |
+            --allow-unauthenticated
+            --session-affinity
+            --min-instances=0
+            --max-instances=10
+            --cpu=1
+            --memory=512Mi
+            --set-secrets=DATABASE_URL=DATABASE_URL_MVP:latest,ELEVENLABS_API_KEY=ELEVENLABS_API_KEY_MVP:latest,OPENAI_API_KEY=OPENAI_API_KEY_MVP:latest
+            --set-env-vars=NODE_ENV=production,LOG_LEVEL=info
