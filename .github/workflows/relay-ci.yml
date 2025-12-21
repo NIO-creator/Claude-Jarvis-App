@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  PROJECT_ID: gemini-overseer
+  PROJECT_ID: claude-jarvis-app
   REGION: europe-west1
   REGISTRY: europe-west1-docker.pkg.dev
   REPOSITORY: jarvis-overseer-mvp
@@ -55,8 +55,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/794024916030/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-          service_account: github-actions@gemini-overseer.iam.gserviceaccount.com
+          workload_identity_provider: projects/987409605790/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions@claude-jarvis-app.iam.gserviceaccount.com
           
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
