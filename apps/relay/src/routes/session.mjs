@@ -31,7 +31,10 @@ export function registerSessionRoutes(app) {
                     properties: {
                         session_id: { type: 'string' },
                         started_at: { type: 'string' },
-                        bootstrap_context: { type: 'object' }
+                        bootstrap_context: {
+                            type: 'object',
+                            additionalProperties: true
+                        }
                     }
                 }
             }
