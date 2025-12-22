@@ -15,9 +15,91 @@ env:
   IMAGE: jarvis-relay
 
 jobs:
+  # ============================================================
+  # QUALITY GATE: Lint + Integration Tests (MANDATORY)
+  # ============================================================
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: jarvis_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/relay/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: apps/relay
+        run: npm ci
+        
+      - name: Node syntax check
+        working-directory: apps/relay
+        run: node --check src/server.mjs
+        
+      - name: Apply test migrations
+        working-directory: apps/relay
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/jarvis_test
+        run: |
+          # Apply migration
+          node -e "
+            const { readFileSync } = require('fs');
+            const { Client } = require('pg');
+            const client = new Client({ connectionString: process.env.DATABASE_URL });
+            client.connect()
+              .then(() => client.query(readFileSync('migrations/001_init.sql', 'utf8')))
+              .then(() => { console.log('Migration applied'); client.end(); })
+              .catch(err => { console.error('Migration failed:', err); process.exit(1); });
+          "
+        
+      - name: Start relay server
+        working-directory: apps/relay
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/jarvis_test
+          PORT: 8080
+          LOG_LEVEL: error
+        run: |
+          node src/server.mjs &
+          echo "Waiting for server to start..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8080/health > /dev/null 2>&1; then
+              echo "Server is ready"
+              break
+            fi
+            sleep 1
+          done
+          
+      - name: Run memory recall integration test (5/5 hard gate)
+        working-directory: apps/relay
+        env:
+          TEST_BASE_URL: http://localhost:8080
+        run: node tests/integration/memory-recall.test.mjs
+
+  # ============================================================
+  # DEPLOY (only on main, after tests pass)
+  # ============================================================
   build-deploy:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     permissions:
       contents: read
@@ -61,3 +143,4 @@ jobs:
             --memory=512Mi
             --set-secrets=DATABASE_URL=DATABASE_URL_MVP:latest,ELEVENLABS_API_KEY=ELEVENLABS_API_KEY_MVP:latest,OPENAI_API_KEY=OPENAI_API_KEY_MVP:latest
             --set-env-vars=NODE_ENV=production,LOG_LEVEL=info
+
