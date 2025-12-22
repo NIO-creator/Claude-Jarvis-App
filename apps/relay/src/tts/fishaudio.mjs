@@ -118,6 +118,8 @@ export class FishAudioTTSProvider extends TTSProvider {
 
         if (usedDefaultVoice) {
             console.log(`[${correlationId}] Fish Audio streaming with default voice`);
+        } else if (voiceId) {
+            console.log(`[${correlationId}] Fish Audio streaming with custom voice: ${voiceId}`);
         }
 
         // Stream the response body
