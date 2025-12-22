@@ -102,6 +102,15 @@ describe('Provider Interface', () => {
         assert.strictEqual(typeof provider.stream, 'function');
     });
 
+    it('FishAudioTTSProvider should have correct interface', async () => {
+        const { FishAudioTTSProvider } = await import('../src/tts/fishaudio.mjs');
+        const provider = new FishAudioTTSProvider();
+
+        assert.strictEqual(provider.name, 'fishaudio');
+        assert.strictEqual(typeof provider.isAvailable, 'function');
+        assert.strictEqual(typeof provider.stream, 'function');
+    });
+
     it('MockTTSProvider should have correct interface', async () => {
         const { MockTTSProvider } = await import('../src/tts/mock.mjs');
         const provider = new MockTTSProvider();

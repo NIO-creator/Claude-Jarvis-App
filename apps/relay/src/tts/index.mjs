@@ -4,6 +4,7 @@
  * @module tts/index
  */
 
+import { CartesiaTTSProvider } from './cartesia.mjs';
 import { FishAudioTTSProvider } from './fishaudio.mjs';
 import { ElevenLabsTTSProvider } from './elevenlabs.mjs';
 import { MockTTSProvider } from './mock.mjs';
@@ -12,6 +13,7 @@ import { MockTTSProvider } from './mock.mjs';
  * Provider instances (singletons)
  */
 const providers = {
+    cartesia: new CartesiaTTSProvider(),
     fishaudio: new FishAudioTTSProvider(),
     elevenlabs: new ElevenLabsTTSProvider(),
     mock: new MockTTSProvider()
@@ -22,7 +24,7 @@ const providers = {
  * @returns {string}
  */
 function getPrimaryProviderName() {
-    return process.env.TTS_PROVIDER || 'fishaudio';
+    return process.env.TTS_PROVIDER || 'cartesia';
 }
 
 /**
@@ -58,7 +60,7 @@ export async function getActiveProvider() {
         return providers.elevenlabs;
     }
 
-    throw new Error('No TTS provider available. Configure FISH_AUDIO_API_KEY_MVP or ELEVENLABS_API_KEY_MVP');
+    throw new Error('No TTS provider available. Configure CARTESIA_API_KEY_MVP, FISH_AUDIO_API_KEY_MVP, or ELEVENLABS_API_KEY_MVP');
 }
 
 /**
@@ -90,6 +92,7 @@ export async function* streamWithFallback(options, preferredProvider) {
             yield { type: 'audio', frame, provider: currentProvider.name };
         }
     } catch (error) {
+        // Log sanitized error (correlation ID will be in message, no secrets)
         console.error(`[TTS] Provider '${currentProvider.name}' failed after ${frameCount} frames:`, error.message);
 
         // Attempt fallback if we haven't already
@@ -137,4 +140,4 @@ export async function getProviderStatus() {
     return status;
 }
 
-export { FishAudioTTSProvider, ElevenLabsTTSProvider, MockTTSProvider };
+export { CartesiaTTSProvider, FishAudioTTSProvider, ElevenLabsTTSProvider, MockTTSProvider };

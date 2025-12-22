@@ -1,15 +1,21 @@
 /**
- * Fish Audio TTS Provider (Primary)
- * Real-time voice synthesis via Fish Audio API
- * Uses HTTP streaming for TTS generation
+ * Fish Audio TTS Provider
+ * Real-time voice synthesis via Fish Audio HTTP streaming API
  * @module tts/fishaudio
+ * 
+ * API Reference: https://fish.audio/
+ * 
+ * Auth: Authorization: Bearer <api_key>
+ * Endpoint: POST https://api.fish.audio/v1/tts
+ * Body: { text, reference_id, format }
  */
 
 import { TTSProvider } from './types.mjs';
+import { randomUUID } from 'crypto';
 
 const FISH_AUDIO_API_URL = 'https://api.fish.audio/v1/tts';
 const DEFAULT_FORMAT = 'mp3';
-const CHUNK_SIZE = 4096; // Bytes per chunk for streaming
+const CHUNK_SIZE = 4096;
 
 export class FishAudioTTSProvider extends TTSProvider {
     name = 'fishaudio';
@@ -26,36 +32,52 @@ export class FishAudioTTSProvider extends TTSProvider {
 
     /**
      * Stream audio frames from Fish Audio
-     * Uses HTTP streaming for real-time audio delivery
+     * Uses HTTP streaming with proper authorization
      * @param {import('./types.mjs').TTSStreamOptions} options
      * @yields {import('./types.mjs').AudioFrame}
      */
     async *stream(options) {
+        const correlationId = randomUUID().slice(0, 8);
+
         if (!await this.isAvailable()) {
-            throw new Error('Fish Audio not configured');
+            throw new Error(`[${correlationId}] Fish Audio not configured (missing API key or voice ID)`);
         }
 
         const voiceId = options.voiceId || this.voiceId;
         const format = options.format || DEFAULT_FORMAT;
 
-        // Make HTTP POST request for TTS
-        const response = await fetch(FISH_AUDIO_API_URL, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${this.apiKey}`,
-                'Content-Type': 'application/json',
-                'model': 's1'  // Fish Audio S1 model
-            },
-            body: JSON.stringify({
-                text: options.text,
-                reference_id: voiceId,
-                format: format
-            })
-        });
+        // Fish Audio accepts JSON body with text and reference_id
+        // DO NOT send model as a header - it goes in body
+        const requestBody = {
+            text: options.text,
+            reference_id: voiceId,
+            format: format,
+            latency: 'normal'
+        };
+
+        let response;
+        try {
+            response = await fetch(FISH_AUDIO_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'audio/mpeg'
+                },
+                body: JSON.stringify(requestBody)
+            });
+        } catch (fetchErr) {
+            throw new Error(`[${correlationId}] Fish Audio fetch error: ${fetchErr.message}`);
+        }
 
         if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Fish Audio API error: ${response.status} - ${errorText}`);
+            let errorDetail = '';
+            try {
+                const errorBody = await response.text();
+                // Sanitize - don't include full error body which might contain sensitive info
+                errorDetail = errorBody.slice(0, 200);
+            } catch { }
+            throw new Error(`[${correlationId}] Fish Audio API error: HTTP ${response.status} - ${errorDetail}`);
         }
 
         // Stream the response body
