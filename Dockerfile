@@ -8,8 +8,9 @@ COPY apps/relay/package*.json ./
 # Install production dependencies only
 RUN npm install --omit=dev
 
-# Copy source
-COPY apps/relay/src/server.mjs ./src/
+# Copy all source files
+COPY apps/relay/src/ ./src/
+COPY apps/relay/migrations/ ./migrations/
 
 ENV NODE_ENV=production
 ENV PORT=8080
