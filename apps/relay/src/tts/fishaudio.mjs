@@ -8,6 +8,8 @@
  * Auth: Authorization: Bearer <api_key>
  * Required Header: model: 's1' (or 'speech-1.6', 'speech-1.5')
  * Body: { text, reference_id (optional), format }
+ * 
+ * Behavior: If reference_id fails with 400, retries once with default voice
  */
 
 import { TTSProvider } from './types.mjs';
@@ -34,8 +36,39 @@ export class FishAudioTTSProvider extends TTSProvider {
     }
 
     /**
+     * Make TTS request to Fish Audio
+     * @private
+     */
+    async _makeTTSRequest(text, format, voiceId, correlationId) {
+        const requestBody = {
+            text: text,
+            format: format,
+            latency: 'normal'
+        };
+
+        // reference_id is optional - only include if we have a valid voice ID
+        if (voiceId) {
+            requestBody.reference_id = voiceId;
+        }
+
+        const response = await fetch(FISH_AUDIO_API_URL, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${this.apiKey}`,
+                'Content-Type': 'application/json',
+                'Accept': 'audio/mpeg',
+                'model': DEFAULT_MODEL  // REQUIRED header per OpenAPI spec
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        return response;
+    }
+
+    /**
      * Stream audio frames from Fish Audio
      * Uses HTTP streaming with proper authorization
+     * If reference_id fails, retries once with default voice
      * @param {import('./types.mjs').TTSStreamOptions} options
      * @yields {import('./types.mjs').AudioFrame}
      */
@@ -49,30 +82,27 @@ export class FishAudioTTSProvider extends TTSProvider {
         const voiceId = options.voiceId || this.voiceId;
         const format = options.format || DEFAULT_FORMAT;
 
-        // Build request body per Fish Audio OpenAPI spec
-        const requestBody = {
-            text: options.text,
-            format: format,
-            latency: 'normal'
-        };
-
-        // reference_id is optional - only include if we have a valid voice ID
-        if (voiceId) {
-            requestBody.reference_id = voiceId;
-        }
-
         let response;
+        let usedDefaultVoice = false;
+
         try {
-            response = await fetch(FISH_AUDIO_API_URL, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'audio/mpeg',
-                    'model': DEFAULT_MODEL  // REQUIRED header per OpenAPI spec
-                },
-                body: JSON.stringify(requestBody)
-            });
+            // First attempt with reference_id (if configured)
+            response = await this._makeTTSRequest(options.text, format, voiceId, correlationId);
+
+            // If reference_id fails with 400, retry without it (default voice)
+            if (!response.ok && response.status === 400 && voiceId) {
+                let errorBody = '';
+                try {
+                    errorBody = await response.text();
+                } catch { }
+
+                // Check if it's a "Reference not found" error
+                if (errorBody.includes('Reference not found')) {
+                    console.warn(`[${correlationId}] Fish Audio reference_id invalid, retrying with default voice`);
+                    usedDefaultVoice = true;
+                    response = await this._makeTTSRequest(options.text, format, null, correlationId);
+                }
+            }
         } catch (fetchErr) {
             throw new Error(`[${correlationId}] Fish Audio fetch error: ${fetchErr.message}`);
         }
@@ -81,10 +111,13 @@ export class FishAudioTTSProvider extends TTSProvider {
             let errorDetail = '';
             try {
                 const errorBody = await response.text();
-                // Sanitize - don't include full error body which might contain sensitive info
                 errorDetail = errorBody.slice(0, 200);
             } catch { }
             throw new Error(`[${correlationId}] Fish Audio API error: HTTP ${response.status} - ${errorDetail}`);
+        }
+
+        if (usedDefaultVoice) {
+            console.log(`[${correlationId}] Fish Audio streaming with default voice`);
         }
 
         // Stream the response body
