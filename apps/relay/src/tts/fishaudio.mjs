@@ -3,17 +3,18 @@
  * Real-time voice synthesis via Fish Audio HTTP streaming API
  * @module tts/fishaudio
  * 
- * API Reference: https://fish.audio/
+ * API Reference: https://docs.fish.audio/api-reference/endpoint/tts/text-to-speech
  * 
  * Auth: Authorization: Bearer <api_key>
- * Endpoint: POST https://api.fish.audio/v1/tts
- * Body: { text, reference_id, format }
+ * Required Header: model: 's1' (or 'speech-1.6', 'speech-1.5')
+ * Body: { text, reference_id (optional), format }
  */
 
 import { TTSProvider } from './types.mjs';
 import { randomUUID } from 'crypto';
 
 const FISH_AUDIO_API_URL = 'https://api.fish.audio/v1/tts';
+const DEFAULT_MODEL = 's1';  // Required header - Fish Audio's recommended model
 const DEFAULT_FORMAT = 'mp3';
 const CHUNK_SIZE = 4096;
 
@@ -23,11 +24,13 @@ export class FishAudioTTSProvider extends TTSProvider {
     constructor() {
         super();
         this.apiKey = process.env.FISH_AUDIO_API_KEY_MVP;
-        this.voiceId = process.env.FISH_AUDIO_VOICE_ID_MVP;
+        // Voice ID is optional - if not provided, Fish Audio uses default voice
+        this.voiceId = process.env.FISH_AUDIO_VOICE_ID_MVP || null;
     }
 
     async isAvailable() {
-        return !!(this.apiKey && this.voiceId);
+        // Only API key is required - reference_id is optional
+        return !!this.apiKey;
     }
 
     /**
@@ -40,20 +43,23 @@ export class FishAudioTTSProvider extends TTSProvider {
         const correlationId = randomUUID().slice(0, 8);
 
         if (!await this.isAvailable()) {
-            throw new Error(`[${correlationId}] Fish Audio not configured (missing API key or voice ID)`);
+            throw new Error(`[${correlationId}] Fish Audio not configured (missing API key)`);
         }
 
         const voiceId = options.voiceId || this.voiceId;
         const format = options.format || DEFAULT_FORMAT;
 
-        // Fish Audio accepts JSON body with text and reference_id
-        // DO NOT send model as a header - it goes in body
+        // Build request body per Fish Audio OpenAPI spec
         const requestBody = {
             text: options.text,
-            reference_id: voiceId,
             format: format,
             latency: 'normal'
         };
+
+        // reference_id is optional - only include if we have a valid voice ID
+        if (voiceId) {
+            requestBody.reference_id = voiceId;
+        }
 
         let response;
         try {
@@ -62,7 +68,8 @@ export class FishAudioTTSProvider extends TTSProvider {
                 headers: {
                     'Authorization': `Bearer ${this.apiKey}`,
                     'Content-Type': 'application/json',
-                    'Accept': 'audio/mpeg'
+                    'Accept': 'audio/mpeg',
+                    'model': DEFAULT_MODEL  // REQUIRED header per OpenAPI spec
                 },
                 body: JSON.stringify(requestBody)
             });
