@@ -1,6 +1,6 @@
 /**
  * Voice Provider Configuration
- * TTS provider settings for Cartesia (primary) and ElevenLabs (fallback)
+ * TTS provider settings for Fish Audio (primary) and ElevenLabs (fallback)
  * @module config/voice
  */
 
@@ -8,19 +8,19 @@
  * Voice provider configuration
  * @type {{
  *   provider: string,
- *   cartesia: { apiKey: string | undefined, voiceId: string | undefined },
+ *   fishaudio: { apiKey: string | undefined, voiceId: string | undefined },
  *   elevenlabs: { apiKey: string | undefined, voiceId: string | undefined }
  * }}
  */
 export const voiceConfig = {
-    // Current TTS provider (cartesia | elevenlabs)
-    // Cartesia is primary, ElevenLabs is fallback
-    provider: process.env.TTS_PROVIDER || 'cartesia',
+    // Current TTS provider (fishaudio | elevenlabs)
+    // Fish Audio is primary, ElevenLabs is fallback
+    provider: process.env.TTS_PROVIDER || 'fishaudio',
 
-    // Cartesia configuration (primary)
-    cartesia: {
-        apiKey: process.env.CARTESIA_API_KEY_MVP,
-        voiceId: process.env.CARTESIA_VOICE_ID_MVP
+    // Fish Audio configuration (primary)
+    fishaudio: {
+        apiKey: process.env.FISH_AUDIO_API_KEY_MVP,
+        voiceId: process.env.FISH_AUDIO_VOICE_ID_MVP
     },
 
     // ElevenLabs configuration (fallback)
@@ -36,10 +36,10 @@ export const voiceConfig = {
  * @returns {boolean}
  */
 export function isVoiceConfigured() {
-    const { provider, cartesia, elevenlabs } = voiceConfig;
+    const { provider, fishaudio, elevenlabs } = voiceConfig;
 
-    if (provider === 'cartesia') {
-        return !!(cartesia.apiKey && cartesia.voiceId);
+    if (provider === 'fishaudio') {
+        return !!(fishaudio.apiKey && fishaudio.voiceId);
     }
 
     if (provider === 'elevenlabs') {
@@ -56,4 +56,3 @@ export function isVoiceConfigured() {
 export function getVoiceProviderName() {
     return voiceConfig.provider;
 }
-

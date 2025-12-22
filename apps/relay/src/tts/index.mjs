@@ -4,7 +4,7 @@
  * @module tts/index
  */
 
-import { CartesiaTTSProvider } from './cartesia.mjs';
+import { FishAudioTTSProvider } from './fishaudio.mjs';
 import { ElevenLabsTTSProvider } from './elevenlabs.mjs';
 import { MockTTSProvider } from './mock.mjs';
 
@@ -12,7 +12,7 @@ import { MockTTSProvider } from './mock.mjs';
  * Provider instances (singletons)
  */
 const providers = {
-    cartesia: new CartesiaTTSProvider(),
+    fishaudio: new FishAudioTTSProvider(),
     elevenlabs: new ElevenLabsTTSProvider(),
     mock: new MockTTSProvider()
 };
@@ -22,7 +22,7 @@ const providers = {
  * @returns {string}
  */
 function getPrimaryProviderName() {
-    return process.env.TTS_PROVIDER || 'cartesia';
+    return process.env.TTS_PROVIDER || 'fishaudio';
 }
 
 /**
@@ -58,7 +58,7 @@ export async function getActiveProvider() {
         return providers.elevenlabs;
     }
 
-    throw new Error('No TTS provider available. Configure CARTESIA_API_KEY_MVP or ELEVENLABS_API_KEY_MVP');
+    throw new Error('No TTS provider available. Configure FISH_AUDIO_API_KEY_MVP or ELEVENLABS_API_KEY_MVP');
 }
 
 /**
@@ -137,4 +137,4 @@ export async function getProviderStatus() {
     return status;
 }
 
-export { CartesiaTTSProvider, ElevenLabsTTSProvider, MockTTSProvider };
+export { FishAudioTTSProvider, ElevenLabsTTSProvider, MockTTSProvider };
