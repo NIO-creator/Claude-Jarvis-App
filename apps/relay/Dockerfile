@@ -11,25 +11,27 @@ COPY apps/relay/package.json ./apps/relay/
 
 # Install dependencies
 FROM base AS deps
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile || npm install
 
-# Build
-FROM deps AS build
-COPY apps/relay ./apps/relay
-WORKDIR /app/apps/relay
-RUN pnpm build
-
-# Production
+# Runtime stage
 FROM node:20-slim AS runner
-WORKDIR /app
+WORKDIR /app/apps/relay
 
-COPY --from=build /app/apps/relay/dist ./dist
-COPY --from=build /app/apps/relay/package.json ./
+# Copy all source files (mjs files, no compilation needed)
+COPY apps/relay/package.json ./
+COPY apps/relay/src ./src
+COPY apps/relay/migrations ./migrations
 
+# Install production dependencies
 RUN npm install --omit=dev
+
+# Build args for traceability
+ARG COMMIT_SHA=unknown
+ENV COMMIT_SHA=$COMMIT_SHA
 
 ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["node", "dist/index.js"]
+# Use server.mjs directly (no TypeScript compilation needed)
+CMD ["node", "src/server.mjs"]

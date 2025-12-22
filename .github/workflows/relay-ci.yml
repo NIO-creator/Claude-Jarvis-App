@@ -121,7 +121,8 @@ jobs:
         run: |
           docker build -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:${{ github.sha }} \
                        -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:latest \
-                       -f Dockerfile .
+                       --build-arg COMMIT_SHA=${{ github.sha }} \
+                       -f apps/relay/Dockerfile .
                        
       - name: Push Docker image
         run: |
@@ -141,6 +142,7 @@ jobs:
             --max-instances=10
             --cpu=1
             --memory=512Mi
-            --set-secrets=DATABASE_URL=DATABASE_URL_MVP:latest,ELEVENLABS_API_KEY=ELEVENLABS_API_KEY_MVP:latest,OPENAI_API_KEY=OPENAI_API_KEY_MVP:latest
-            --set-env-vars=NODE_ENV=production,LOG_LEVEL=info
+            --set-secrets=DATABASE_URL=DATABASE_URL_MVP:latest,ELEVENLABS_API_KEY=ELEVENLABS_API_KEY_MVP:latest,OPENAI_API_KEY=OPENAI_API_KEY_MVP:latest,CARTESIA_API_KEY_MVP=CARTESIA_API_KEY_MVP:latest,CARTESIA_VOICE_ID_MVP=CARTESIA_VOICE_ID_MVP:latest
+            --set-env-vars=NODE_ENV=production,LOG_LEVEL=info,TTS_PROVIDER=cartesia
+
 
