@@ -5,18 +5,9 @@
  */
 
 import { getAllFacts, getLastSessionTranscript } from './memory.mjs';
+import { getPersonaPrompt } from '../personas/registry.mjs';
 
-const SYSTEM_INSTRUCTIONS_VERSION = '1.0.0-mvp';
-
-/**
- * Default persona prompts (stubbed for MVP)
- */
-const PERSONA_PROMPTS = {
-    jarvis: `You are JARVIS, an advanced AI assistant. You are helpful, precise, and efficient.
-Your responses should be clear and actionable. You have access to the user's conversation history
-and memory facts to provide personalized assistance.`,
-    default: `You are a helpful AI assistant.`
-};
+const SYSTEM_INSTRUCTIONS_VERSION = '1.1.0-persona';
 
 /**
  * Default knowledge base packs (stubbed for MVP)
@@ -47,8 +38,8 @@ export async function buildBootstrapContext({ userId, personaId = 'jarvis', kbPa
         getLastSessionTranscript(userId)
     ]);
 
-    // Get persona prompt (with fallback)
-    const personaPrompt = PERSONA_PROMPTS[personaId] || PERSONA_PROMPTS.default;
+    // Get persona prompt from file-based registry (with fallback)
+    const personaPrompt = getPersonaPrompt(personaId);
 
     // Get KB prompt (with fallback)
     const kbPrompt = KB_PACKS[kbPackId] || KB_PACKS.none;
