@@ -28,6 +28,9 @@ export class FishAudioTTSProvider extends TTSProvider {
         this.apiKey = process.env.FISH_AUDIO_API_KEY_MVP;
         // Voice ID is optional - if not provided, Fish Audio uses default voice
         this.voiceId = process.env.FISH_AUDIO_VOICE_ID_MVP || null;
+
+        // Diagnostic logging for voice model configuration (ID only, no secrets)
+        console.log(`[FishAudio] Provider initialized - voice_model_id: ${this.voiceId || 'DEFAULT'}, api_key_configured: ${!!this.apiKey}`);
     }
 
     async isAvailable() {
