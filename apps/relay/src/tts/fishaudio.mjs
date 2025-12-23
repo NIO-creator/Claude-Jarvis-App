@@ -90,6 +90,7 @@ export class FishAudioTTSProvider extends TTSProvider {
 
         try {
             // First attempt with reference_id (if configured)
+            console.log(`[${correlationId}] Fish Audio TTS request - reference_id: "${voiceId || 'NONE'}", text_length: ${options.text?.length}`);
             response = await this._makeTTSRequest(options.text, format, voiceId, correlationId);
 
             // If reference_id fails with 400, retry without it (default voice)
@@ -98,6 +99,8 @@ export class FishAudioTTSProvider extends TTSProvider {
                 try {
                     errorBody = await response.text();
                 } catch { }
+
+                console.warn(`[${correlationId}] Fish Audio 400 error with reference_id="${voiceId}": ${errorBody.slice(0, 200)}`);
 
                 // Check if it's a "Reference not found" error
                 if (errorBody.includes('Reference not found')) {
