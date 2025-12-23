@@ -2,6 +2,12 @@
  * TTS Provider Factory
  * Manages provider selection, fallback, and streaming orchestration
  * @module tts/index
+ * 
+ * Fallback Order (explicit):
+ * 1. fishaudio (primary - custom voice)
+ * 2. cartesia (1st fallback)
+ * 3. elevenlabs (last resort)
+ * 4. mock (test/dev only)
  */
 
 import { CartesiaTTSProvider } from './cartesia.mjs';
@@ -20,11 +26,17 @@ const providers = {
 };
 
 /**
+ * Explicit fallback order - this defines the priority chain
+ * When a provider fails, we try the next one in this list
+ */
+const FALLBACK_ORDER = ['fishaudio', 'cartesia', 'elevenlabs'];
+
+/**
  * Get the configured primary provider
  * @returns {string}
  */
 function getPrimaryProviderName() {
-    return process.env.TTS_PROVIDER || 'cartesia';
+    return process.env.TTS_PROVIDER || 'fishaudio';
 }
 
 /**
@@ -37,8 +49,21 @@ export function getProvider(name) {
 }
 
 /**
+ * Get the fallback order starting from a given provider
+ * @param {string} startProvider - The provider that failed
+ * @returns {string[]} - List of providers to try next
+ */
+export function getFallbackChain(startProvider) {
+    const startIndex = FALLBACK_ORDER.indexOf(startProvider);
+    if (startIndex === -1 || startIndex >= FALLBACK_ORDER.length - 1) {
+        return [];
+    }
+    return FALLBACK_ORDER.slice(startIndex + 1);
+}
+
+/**
  * Get the active provider with fallback logic
- * Priority: Mock (if enabled) > Configured primary > ElevenLabs fallback
+ * Priority: Mock (if enabled) > Configured primary > Fallback chain
  * @returns {Promise<import('./types.mjs').TTSProvider>}
  */
 export async function getActiveProvider() {
@@ -54,70 +79,79 @@ export async function getActiveProvider() {
         return primary;
     }
 
-    // Fallback to ElevenLabs
-    if (await providers.elevenlabs.isAvailable()) {
-        console.warn(`[TTS] Primary provider '${primaryName}' unavailable, falling back to ElevenLabs`);
-        return providers.elevenlabs;
+    // Try fallback chain in order
+    for (const providerName of FALLBACK_ORDER) {
+        if (providerName === primaryName) continue; // Already tried
+        const provider = providers[providerName];
+        if (provider && await provider.isAvailable()) {
+            console.warn(`[TTS] Primary provider '${primaryName}' unavailable, using '${providerName}'`);
+            return provider;
+        }
     }
 
-    throw new Error('No TTS provider available. Configure CARTESIA_API_KEY_MVP, FISH_AUDIO_API_KEY_MVP, or ELEVENLABS_API_KEY_MVP');
+    throw new Error('No TTS provider available. Configure FISH_AUDIO_API_KEY_MVP, CARTESIA_API_KEY_MVP, or ELEVENLABS_API_KEY_MVP');
 }
 
 /**
- * Stream TTS with automatic fallback
- * If primary provider fails mid-stream, attempts to continue with fallback
+ * Stream TTS with automatic fallback chain
+ * If provider fails mid-stream, attempts next provider in chain
  * @param {import('./types.mjs').TTSStreamOptions} options
  * @param {string} [preferredProvider] - Override provider selection
  * @yields {{ type: 'audio', frame: import('./types.mjs').AudioFrame } | { type: 'error', error: Error, switched: boolean }}
  */
 export async function* streamWithFallback(options, preferredProvider) {
-    const providerName = preferredProvider || getPrimaryProviderName();
-    let currentProvider = await getActiveProvider();
+    const primaryName = preferredProvider || getPrimaryProviderName();
 
-    // If specific provider requested and available, use it
-    if (preferredProvider && providers[preferredProvider]) {
-        const requested = providers[preferredProvider];
-        if (await requested.isAvailable()) {
-            currentProvider = requested;
+    // Build the provider chain starting from primary
+    const providerChain = [primaryName, ...getFallbackChain(primaryName)];
+
+    // If preferred provider is not in standard chain, just use it alone
+    if (preferredProvider && !FALLBACK_ORDER.includes(preferredProvider)) {
+        providerChain.length = 0;
+        providerChain.push(preferredProvider);
+    }
+
+    let lastError = null;
+    let startProvider = null;
+
+    for (const providerName of providerChain) {
+        const provider = providers[providerName];
+        if (!provider) continue;
+
+        // Check availability
+        if (!await provider.isAvailable()) {
+            console.warn(`[TTS] Provider '${providerName}' not available, skipping`);
+            continue;
+        }
+
+        if (!startProvider) {
+            startProvider = providerName;
+        } else {
+            // This is a fallback, notify
+            console.warn(`[TTS] Attempting fallback to '${providerName}'...`);
+            yield { type: 'provider_switched', from: startProvider, to: providerName };
+        }
+
+        let frameCount = 0;
+        try {
+            for await (const frame of provider.stream(options)) {
+                frameCount++;
+                yield { type: 'audio', frame, provider: providerName };
+            }
+            // Success! Exit the loop
+            return;
+        } catch (error) {
+            console.error(`[TTS] Provider '${providerName}' failed after ${frameCount} frames:`, error.message);
+            lastError = error;
+            // Continue to next provider in chain
         }
     }
 
-    const startProvider = currentProvider.name;
-    let frameCount = 0;
-    let usedFallback = false;
-
-    try {
-        for await (const frame of currentProvider.stream(options)) {
-            frameCount++;
-            yield { type: 'audio', frame, provider: currentProvider.name };
-        }
-    } catch (error) {
-        // Log sanitized error (correlation ID will be in message, no secrets)
-        console.error(`[TTS] Provider '${currentProvider.name}' failed after ${frameCount} frames:`, error.message);
-
-        // Attempt fallback if we haven't already
-        if (currentProvider.name !== 'elevenlabs' && !usedFallback) {
-            if (await providers.elevenlabs.isAvailable()) {
-                console.warn(`[TTS] Attempting fallback to ElevenLabs...`);
-                usedFallback = true;
-                currentProvider = providers.elevenlabs;
-
-                try {
-                    // Restart from beginning with fallback provider
-                    for await (const frame of currentProvider.stream(options)) {
-                        yield { type: 'audio', frame, provider: currentProvider.name };
-                    }
-                    // Successfully completed with fallback
-                    yield { type: 'provider_switched', from: startProvider, to: 'elevenlabs' };
-                    return;
-                } catch (fallbackError) {
-                    console.error('[TTS] Fallback provider also failed:', fallbackError.message);
-                    yield { type: 'error', error: fallbackError, provider: 'elevenlabs' };
-                }
-            }
-        }
-
-        yield { type: 'error', error, provider: currentProvider.name };
+    // All providers failed
+    if (lastError) {
+        yield { type: 'error', error: lastError, provider: 'all' };
+    } else {
+        yield { type: 'error', error: new Error('No TTS providers available'), provider: 'none' };
     }
 }
 
@@ -135,9 +169,15 @@ export async function getProviderStatus() {
         };
     }
 
+    status.fallbackOrder = FALLBACK_ORDER;
     status.activeFallback = process.env.TTS_MOCK_MODE === 'true' ? 'mock' : getPrimaryProviderName();
 
     return status;
 }
+
+/**
+ * Export the explicit fallback order for testing
+ */
+export { FALLBACK_ORDER };
 
 export { CartesiaTTSProvider, FishAudioTTSProvider, ElevenLabsTTSProvider, MockTTSProvider };

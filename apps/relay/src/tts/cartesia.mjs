@@ -21,8 +21,12 @@ export class CartesiaTTSProvider extends TTSProvider {
 
     constructor() {
         super();
-        this.apiKey = process.env.CARTESIA_API_KEY_MVP;
-        this.voiceId = process.env.CARTESIA_VOICE_ID_MVP;
+        // Trim values to ensure no trailing newlines from secret injection
+        this.apiKey = process.env.CARTESIA_API_KEY_MVP?.trim();
+        this.voiceId = process.env.CARTESIA_VOICE_ID_MVP?.trim();
+
+        // Diagnostic logging (no secrets, just configuration status)
+        console.log(`[Cartesia] Provider initialized - voice_id: ${this.voiceId || 'NOT SET'} (len=${this.voiceId?.length || 0}), api_key_configured: ${!!this.apiKey}`);
     }
 
     async isAvailable() {
