@@ -13,7 +13,10 @@
         "test:mock": "TTS_MOCK_MODE=true node --test tests/*.test.mjs"
     },
     "dependencies": {
+        "@fastify/cors": "^8.5.0",
+        "@fastify/multipart": "^8.3.1",
         "@fastify/websocket": "^10.0.1",
+        "dotenv": "^17.2.3",
         "fastify": "^4.26.0",
         "openai": "^4.77.0",
         "pg": "^8.11.3",

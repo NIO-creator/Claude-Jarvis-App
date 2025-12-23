@@ -101,6 +101,8 @@ describe('LLM Fallback Tests', () => {
         it('getProviderStatus returns correct structure', async () => {
             process.env.OPENAI_API_KEY = 'test-key';
             process.env.GEMINI_API_KEY = 'test-key-2';
+            // Ensure mock mode is disabled for this test
+            delete process.env.LLM_MOCK_MODE;
 
             // Dynamic import to pick up env changes
             const llmModule = await import('../src/llm/index.mjs');
@@ -109,6 +111,7 @@ describe('LLM Fallback Tests', () => {
             assert.strictEqual(typeof status.llm_enabled, 'boolean');
             assert.strictEqual(status.persona, 'jarvis');
             assert.ok(Array.isArray(status.fallback_order));
+            // When not in mock mode, fallback_order should be real providers
             assert.deepStrictEqual(status.fallback_order, ['openai', 'gemini']);
         });
     });

@@ -6,16 +6,30 @@
  * FALLBACK ORDER (MANDATORY):
  * 1. OpenAI (primary)
  * 2. Gemini (fallback)
+ * 
+ * MOCK MODE:
+ * When LLM_MOCK_MODE=true, uses deterministic mock provider only.
+ * Enables local dev and CI testing without real API keys.
  */
 
 import { OpenAIProvider } from './providers/openai.mjs';
 import { GeminiProvider } from './providers/gemini.mjs';
+import { MockProvider } from './providers/mock.mjs';
 import { randomUUID } from 'crypto';
+
+/**
+ * Check if mock mode is enabled
+ * @returns {boolean}
+ */
+export function getMockMode() {
+    return process.env.LLM_MOCK_MODE === 'true';
+}
 
 /**
  * Provider instances (singletons)
  */
 const providers = {
+    mock: new MockProvider(),
     openai: new OpenAIProvider(),
     gemini: new GeminiProvider()
 };
@@ -25,6 +39,11 @@ const providers = {
  * OpenAI first, Gemini second (as mandated)
  */
 const LLM_FALLBACK_ORDER = ['openai', 'gemini'];
+
+/**
+ * Mock mode uses only the mock provider
+ */
+const MOCK_FALLBACK_ORDER = ['mock'];
 
 /**
  * Error codes that trigger fallback
@@ -67,7 +86,10 @@ export async function generateWithFallback(request) {
     const errors = [];
     let fallbackUsed = false;
 
-    for (const providerName of LLM_FALLBACK_ORDER) {
+    // Use mock chain when in mock mode, otherwise use real provider chain
+    const providerChain = getMockMode() ? MOCK_FALLBACK_ORDER : LLM_FALLBACK_ORDER;
+
+    for (const providerName of providerChain) {
         const provider = providers[providerName];
 
         if (!await provider.isAvailable()) {
@@ -125,16 +147,25 @@ export async function generateWithFallback(request) {
  * @returns {Promise<Object>}
  */
 export async function getProviderStatus() {
+    const mockMode = getMockMode();
+    const activeChain = mockMode ? MOCK_FALLBACK_ORDER : LLM_FALLBACK_ORDER;
+
     const status = {
         llm_enabled: false,
+        mock_mode: mockMode,
         primary: null,
         fallback: null,
         persona: 'jarvis',
-        fallback_order: LLM_FALLBACK_ORDER,
+        fallback_order: activeChain,
         providers: {}
     };
 
-    for (const [name, provider] of Object.entries(providers)) {
+    // In mock mode, only report mock provider; otherwise report real providers
+    const activeProviders = mockMode
+        ? { mock: providers.mock }
+        : { openai: providers.openai, gemini: providers.gemini };
+
+    for (const [name, provider] of Object.entries(activeProviders)) {
         const available = await provider.isAvailable();
         status.providers[name] = provider.getStatus();
         status.providers[name].available = available;
@@ -163,5 +194,5 @@ export async function isConfigured() {
     return false;
 }
 
-export { OpenAIProvider, GeminiProvider };
-export { LLM_FALLBACK_ORDER };
+export { OpenAIProvider, GeminiProvider, MockProvider };
+export { LLM_FALLBACK_ORDER, MOCK_FALLBACK_ORDER };

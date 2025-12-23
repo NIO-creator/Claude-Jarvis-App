@@ -100,6 +100,17 @@ export async function getActiveProvider() {
  * @yields {{ type: 'audio', frame: import('./types.mjs').AudioFrame } | { type: 'error', error: Error, switched: boolean }}
  */
 export async function* streamWithFallback(options, preferredProvider) {
+    // Mock mode takes priority for testing - bypass fallback chain entirely
+    if (await providers.mock.isAvailable()) {
+        console.log('[TTS] Mock mode enabled, using mock provider');
+        let frameCount = 0;
+        for await (const frame of providers.mock.stream(options)) {
+            frameCount++;
+            yield { type: 'audio', frame, provider: 'mock' };
+        }
+        return;
+    }
+
     const primaryName = preferredProvider || getPrimaryProviderName();
 
     // Build the provider chain starting from primary
