@@ -5,19 +5,21 @@
  */
 
 import OpenAI, { toFile } from 'openai';
-import { Readable } from 'stream';
 
 // Lazy-initialized OpenAI client (deferred to avoid crash when key missing)
 let openai = null;
 
 /**
  * Get OpenAI client (lazy initialization)
+ * Configures timeout and retry settings for reliability
  * @returns {OpenAI | null}
  */
 function getOpenAIClient() {
     if (!openai && process.env.OPENAI_API_KEY) {
         openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
+            timeout: 60000, // 60 second timeout for audio uploads
+            maxRetries: 2,  // Retry twice on transient failures
         });
     }
     return openai;
@@ -180,13 +182,44 @@ export function registerSTTRoutes(app) {
 
         } catch (err) {
             const elapsed = Date.now() - startTime;
+
+            // Detailed error classification for debugging
+            const errorClass = err.constructor?.name || 'Error';
+            const errorStatus = err.status || null;
+            const errorType = err.type || null;
+            const errorCode = err.code || null;
+            const errorCause = err.cause?.message || null;
+
             // Sanitize error message to avoid leaking API keys
             const safeMessage = err.message?.replace(/Bearer\s+[^\s]+/g, 'Bearer [REDACTED]') || 'Transcription failed';
-            app.log.error({ err: { ...err, message: safeMessage }, userId, elapsed_ms: elapsed, correlation_id: correlationId }, '[stt] transcription failed');
+
+            // Structured error log with all relevant details
+            app.log.error({
+                correlation_id: correlationId,
+                userId,
+                elapsed_ms: elapsed,
+                error_class: errorClass,
+                error_status: errorStatus,
+                error_type: errorType,
+                error_code: errorCode,
+                error_cause: errorCause,
+                error_message: safeMessage
+            }, `[stt] transcription failed: ${errorClass}`);
 
             if (err.status === 401) {
                 return reply.status(502).send({
                     error: { code: 'PROVIDER_AUTH_FAILED', message: 'STT provider authentication failed', correlation_id: correlationId }
+                });
+            }
+
+            // Provide more specific error code for connection issues
+            if (errorClass === 'APIConnectionError' || safeMessage.includes('Connection error')) {
+                return reply.status(502).send({
+                    error: {
+                        code: 'PROVIDER_CONNECTION_ERROR',
+                        message: 'Failed to connect to STT provider',
+                        correlation_id: correlationId
+                    }
                 });
             }
 
