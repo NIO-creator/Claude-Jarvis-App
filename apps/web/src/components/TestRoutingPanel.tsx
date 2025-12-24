@@ -9,9 +9,6 @@ import {
     type TTSMode
 } from '../hooks/useTestRouting';
 
-// Re-export types and helpers for convenience
-export { getLLMHeader, getTTSDisable } from '../hooks/useTestRouting';
-
 interface TestRoutingPanelProps {
     onModeChange?: () => void;
 }
