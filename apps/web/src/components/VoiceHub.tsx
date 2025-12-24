@@ -7,6 +7,7 @@ import { CONFIG } from '../config';
 import StatusRing from './StatusRing';
 import PushToTalk from './PushToTalk';
 import TranscriptPanel from './TranscriptPanel';
+import TestRoutingPanel from './TestRoutingPanel';
 
 /**
  * Config Error Display Component
@@ -50,6 +51,7 @@ const VoiceHub: React.FC = () => {
         transcript: assistantText,
         lastProvider,
         streamInfo,
+        llmInfo,
         ask,
         setAudioHandlers
     } = useJarvisWS(userId, session?.session_id || null);
@@ -188,6 +190,7 @@ const VoiceHub: React.FC = () => {
                         assistantText={assistantText}
                         provider={lastProvider}
                         streamInfo={streamInfo}
+                        llmInfo={llmInfo}
                     />
                 </div>
 
@@ -218,6 +221,9 @@ const VoiceHub: React.FC = () => {
             }}>
                 USER: {userId?.substring(0, 8)}... | SESSION: {session?.session_id?.substring(0, 8)}... | WS: {wsState}
             </div>
+
+            {/* Test Routing Panel */}
+            <TestRoutingPanel />
         </div>
     );
 };

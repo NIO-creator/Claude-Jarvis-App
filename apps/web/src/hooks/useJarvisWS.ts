@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { CONFIG } from '../config';
+import { getLLMHeader, getTTSDisable } from '../components/TestRoutingPanel';
 
 export type WSState = 'idle' | 'connecting' | 'connected' | 'bound' | 'error';
 
@@ -17,7 +18,9 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
     const [state, setState] = useState<WSState>('idle');
     const [transcript, setTranscript] = useState<string>('');
     const [lastProvider, setLastProvider] = useState<string | null>(null);
-    const [streamInfo, setStreamInfo] = useState<{ codec?: string, sample_rate?: number } | null>(null);
+    const [streamInfo, setStreamInfo] = useState<{ codec?: string, sample_rate?: number, correlation_id?: string } | null>(null);
+    const [llmInfo, setLLMInfo] = useState<{ provider?: string, correlation_id?: string } | null>(null);
+    const lastCorrelationIdRef = useRef<string | null>(null);
 
     const wsRef = useRef<WebSocket | null>(null);
     const onAudioFrameRef = useRef<((frame: AudioFrame) => void) | null>(null);
@@ -116,10 +119,14 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
 
                     case 'audio.end':
                         // Set stream info now that stream is complete (not during frame processing)
-                        setStreamInfo({ codec: msg.codec, sample_rate: msg.sample_rate_hz });
+                        setStreamInfo({
+                            codec: msg.codec,
+                            sample_rate: msg.sample_rate_hz,
+                            correlation_id: msg.correlation_id
+                        });
 
                         // Contract log: [audio] playing codec=... provider=...
-                        console.log(`[audio] playing codec=${msg.codec || 'unknown'} provider=${msg.provider}`);
+                        console.log(`[audio] playing codec=${msg.codec || 'unknown'} provider=${msg.provider} corr=${msg.correlation_id || 'none'}`);
                         console.log(`[audio] stream ended, total frames: ${frameCountRef.current}`);
 
                         setLastProvider(msg.provider);
@@ -196,20 +203,34 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
     /**
      * Send assistant.speak message to trigger TTS
      * Contract: WS send assistant.speak with assistant_text
+     * Now includes tts_disable and correlation_id from test routing
      */
-    const speak = useCallback((text: string) => {
+    const speak = useCallback((text: string, correlation_id?: string) => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             setTranscript(''); // Clear for new response
             setLastProvider(null);
             frameCountRef.current = 0;
 
-            // Contract log: [ws] assistant.speak sent
-            console.log('[ws] assistant.speak sent, text_length=' + text.length);
+            // Get TTS disable list from test routing
+            const tts_disable = getTTSDisable();
 
-            wsRef.current.send(JSON.stringify({
+            // Contract log: [ws] assistant.speak sent
+            console.log('[ws] assistant.speak sent, text_length=' + text.length + ', tts_disable=' + JSON.stringify(tts_disable));
+
+            const message: Record<string, unknown> = {
                 type: 'assistant.speak',
                 text
-            }));
+            };
+
+            // Only add optional fields if they have values
+            if (tts_disable.length > 0) {
+                message.tts_disable = tts_disable;
+            }
+            if (correlation_id) {
+                message.correlation_id = correlation_id;
+            }
+
+            wsRef.current.send(JSON.stringify(message));
         } else {
             console.error('[ws] Cannot speak: WebSocket not open, state:', wsRef.current?.readyState);
         }
@@ -220,6 +241,7 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
      * A) POST /assistant/respond
      * B) Receive assistant_text
      * C) WS send assistant.speak
+     * Now includes x-jarvis-test-llm header for forced provider
      */
     const ask = useCallback(async (userText: string) => {
         if (!userId || !sessionId) {
@@ -230,12 +252,22 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
         // Contract log: [respond] user_text="..."
         console.log(`[respond] user_text="${userText}"`);
 
+        // Build headers with optional LLM force header
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            [CONFIG.USER_ID_HEADER]: userId
+        };
+
+        // Check test routing for forced LLM provider
+        const llmHeader = getLLMHeader();
+        if (llmHeader) {
+            headers['x-jarvis-test-llm'] = llmHeader;
+            console.log(`[respond] Forcing LLM provider via header: ${llmHeader}`);
+        }
+
         const response = await fetch(`${CONFIG.API_BASE_URL}/assistant/respond`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                [CONFIG.USER_ID_HEADER]: userId
-            },
+            headers,
             body: JSON.stringify({
                 session_id: sessionId,
                 user_text: userText
@@ -250,10 +282,15 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
 
         const data = await response.json();
 
-        // Contract log: [respond] assistant_text_len=...
-        console.log(`[respond] assistant_text_len=${data.response_text?.length || 0}, provider=${data.provider}`);
+        // Store LLM info for display
+        setLLMInfo({ provider: data.provider, correlation_id: data.correlation_id });
+        lastCorrelationIdRef.current = data.correlation_id;
 
-        speak(data.response_text);
+        // Contract log: [respond] assistant_text_len=...
+        console.log(`[respond] assistant_text_len=${data.response_text?.length || 0}, provider=${data.provider}, fallback_used=${data.fallback_used}, correlation_id=${data.correlation_id}`);
+
+        // Pass correlation_id to speak for TTS tracking
+        speak(data.response_text, data.correlation_id);
         return data;
     }, [userId, sessionId, speak]);
 
@@ -267,6 +304,7 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
         transcript,
         lastProvider,
         streamInfo,
+        llmInfo,
         ask,
         speak,
         setAudioHandlers
