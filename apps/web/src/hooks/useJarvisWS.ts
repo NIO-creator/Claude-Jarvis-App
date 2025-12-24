@@ -24,6 +24,10 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
     const onAudioEndRef = useRef<((provider: string) => void) | null>(null);
     const frameCountRef = useRef<number>(0);
     const connectingRef = useRef<boolean>(false);
+    const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // Ping interval: 30 seconds (well under Cloud Run's 60s timeout)
+    const PING_INTERVAL_MS = 30000;
 
     /**
      * Connect to WebSocket and bind session
@@ -75,6 +79,16 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
                         // Contract log: [ws] bound user_id=<...> session_id=<...>
                         console.log(`[ws] bound user_id=${userId} session_id=${sessionId}`);
                         setState('bound');
+                        // Start ping keepalive to prevent Cloud Run idle timeout
+                        if (pingIntervalRef.current) {
+                            clearInterval(pingIntervalRef.current);
+                        }
+                        pingIntervalRef.current = setInterval(() => {
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'ping' }));
+                                console.log('[ws] ping sent');
+                            }
+                        }, PING_INTERVAL_MS);
                         break;
 
                     case 'transcript.delta':
@@ -120,6 +134,10 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
                         console.log(`[ws] Provider switched from ${msg.from} to ${msg.to}`);
                         break;
 
+                    case 'pong':
+                        console.log('[ws] pong received');
+                        break;
+
                     case 'error':
                         console.error('[ws] Relay Error:', msg.code, msg.message);
                         break;
@@ -137,6 +155,11 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
             setState('idle');
             wsRef.current = null;
             connectingRef.current = false;
+            // Clear ping interval on disconnect
+            if (pingIntervalRef.current) {
+                clearInterval(pingIntervalRef.current);
+                pingIntervalRef.current = null;
+            }
         };
 
         ws.onerror = (err) => {
@@ -160,6 +183,11 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
             if (wsRef.current) {
                 wsRef.current.close();
                 wsRef.current = null;
+            }
+            // Clean up ping interval on unmount
+            if (pingIntervalRef.current) {
+                clearInterval(pingIntervalRef.current);
+                pingIntervalRef.current = null;
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
