@@ -4,7 +4,7 @@
  * @module routes/stt
  */
 
-import OpenAI from 'openai';
+import OpenAI, { toFile } from 'openai';
 import { Readable } from 'stream';
 
 // Initialize OpenAI client (will use OPENAI_API_KEY from env)
@@ -29,8 +29,9 @@ export function isSTTConfigured() {
  * @returns {Promise<string>} - Transcribed text
  */
 async function transcribeWithOpenAI(audioBuffer, filename) {
-    // Create a File object from the buffer for OpenAI
-    const audioFile = new File([audioBuffer], filename, {
+    // Use OpenAI's toFile helper to properly convert Buffer for API upload
+    // This fixes APIConnectionError caused by using browser File() constructor
+    const audioFile = await toFile(audioBuffer, filename, {
         type: getMimeType(filename),
     });
 
@@ -94,17 +95,20 @@ export function registerSTTRoutes(app) {
     app.post('/stt/transcribe', async (request, reply) => {
         const userId = request.userId;
         const startTime = Date.now();
+        // Generate correlation ID for request tracing
+        const correlationId = `stt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        reply.header('x-correlation-id', correlationId);
 
         if (!userId) {
             return reply.status(401).send({
-                error: { code: 'UNAUTHORIZED', message: 'User identity required' }
+                error: { code: 'UNAUTHORIZED', message: 'User identity required', correlation_id: correlationId }
             });
         }
 
         // Check configuration
         if (!isSTTConfigured()) {
             return reply.status(503).send({
-                error: { code: 'NOT_CONFIGURED', message: 'STT not configured. Set OPENAI_API_KEY or STT_MOCK_MODE=true' }
+                error: { code: 'NOT_CONFIGURED', message: 'STT not configured. Set OPENAI_API_KEY or STT_MOCK_MODE=true', correlation_id: correlationId }
             });
         }
 
@@ -114,13 +118,13 @@ export function registerSTTRoutes(app) {
 
             if (!data) {
                 return reply.status(400).send({
-                    error: { code: 'NO_AUDIO', message: 'No audio file provided' }
+                    error: { code: 'NO_AUDIO', message: 'No audio file provided', correlation_id: correlationId }
                 });
             }
 
             // Contract log: [stt] received content-type=... bytes=...
             // Note: We'll get exact bytes after streaming
-            app.log.info(`[stt] received content-type=${data.mimetype} filename=${data.filename}`);
+            app.log.info(`[stt] correlation_id=${correlationId} received content-type=${data.mimetype} filename=${data.filename}`);
 
             // Mock mode for development
             if (process.env.STT_MOCK_MODE === 'true') {
@@ -128,9 +132,9 @@ export function registerSTTRoutes(app) {
                 const elapsed = Date.now() - startTime;
 
                 // Contract log: [stt] provider=... elapsed_ms=... transcript_len=...
-                app.log.info(`[stt] provider=mock elapsed_ms=${elapsed} transcript_len=${transcript.length}`);
+                app.log.info(`[stt] correlation_id=${correlationId} provider=mock elapsed_ms=${elapsed} transcript_len=${transcript.length}`);
 
-                return { transcript };
+                return { transcript, correlation_id: correlationId };
             }
 
             // Convert stream to buffer
@@ -141,29 +145,31 @@ export function registerSTTRoutes(app) {
             const audioBuffer = Buffer.concat(chunks);
 
             // Contract log: [stt] received content-type=... bytes=...
-            app.log.info(`[stt] received content-type=${data.mimetype} bytes=${audioBuffer.length}`);
+            app.log.info(`[stt] correlation_id=${correlationId} received content-type=${data.mimetype} bytes=${audioBuffer.length}`);
 
             // Transcribe with OpenAI
             const transcript = await transcribeWithOpenAI(audioBuffer, data.filename || 'audio.webm');
             const elapsed = Date.now() - startTime;
 
             // Contract log: [stt] provider=... elapsed_ms=... transcript_len=...
-            app.log.info(`[stt] provider=openai elapsed_ms=${elapsed} transcript_len=${transcript.length}`);
+            app.log.info(`[stt] correlation_id=${correlationId} provider=openai elapsed_ms=${elapsed} transcript_len=${transcript.length}`);
 
-            return { transcript };
+            return { transcript, correlation_id: correlationId };
 
         } catch (err) {
             const elapsed = Date.now() - startTime;
-            app.log.error({ err, userId, elapsed_ms: elapsed }, '[stt] transcription failed');
+            // Sanitize error message to avoid leaking API keys
+            const safeMessage = err.message?.replace(/Bearer\s+[^\s]+/g, 'Bearer [REDACTED]') || 'Transcription failed';
+            app.log.error({ err: { ...err, message: safeMessage }, userId, elapsed_ms: elapsed, correlation_id: correlationId }, '[stt] transcription failed');
 
             if (err.status === 401) {
                 return reply.status(502).send({
-                    error: { code: 'PROVIDER_AUTH_FAILED', message: 'STT provider authentication failed' }
+                    error: { code: 'PROVIDER_AUTH_FAILED', message: 'STT provider authentication failed', correlation_id: correlationId }
                 });
             }
 
             return reply.status(500).send({
-                error: { code: 'TRANSCRIPTION_FAILED', message: err.message || 'Transcription failed' }
+                error: { code: 'TRANSCRIPTION_FAILED', message: safeMessage, correlation_id: correlationId }
             });
         }
     });
