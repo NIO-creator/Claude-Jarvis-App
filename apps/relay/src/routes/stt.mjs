@@ -7,10 +7,21 @@
 import OpenAI, { toFile } from 'openai';
 import { Readable } from 'stream';
 
-// Initialize OpenAI client (will use OPENAI_API_KEY from env)
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy-initialized OpenAI client (deferred to avoid crash when key missing)
+let openai = null;
+
+/**
+ * Get OpenAI client (lazy initialization)
+ * @returns {OpenAI | null}
+ */
+function getOpenAIClient() {
+    if (!openai && process.env.OPENAI_API_KEY) {
+        openai = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY,
+        });
+    }
+    return openai;
+}
 
 /**
  * Check if STT is configured

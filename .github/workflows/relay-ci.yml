@@ -76,16 +76,25 @@ jobs:
           DATABASE_URL: postgresql://test:test@localhost:5432/jarvis_test
           PORT: 8080
           LOG_LEVEL: error
+          STT_MOCK_MODE: "true"
+          LLM_MOCK_MODE: "true"
+          TTS_MOCK_MODE: "true"
         run: |
           node src/server.mjs &
           echo "Waiting for server to start..."
+          SERVER_READY=false
           for i in {1..30}; do
             if curl -s http://localhost:8080/health > /dev/null 2>&1; then
               echo "Server is ready"
+              SERVER_READY=true
               break
             fi
             sleep 1
           done
+          if [ "$SERVER_READY" != "true" ]; then
+            echo "FATAL: Server failed to become ready within 30s"
+            exit 1
+          fi
           
       - name: Run memory recall integration test (5/5 hard gate)
         working-directory: apps/relay

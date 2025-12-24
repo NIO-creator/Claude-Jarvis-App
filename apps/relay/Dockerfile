@@ -1,29 +1,16 @@
-FROM node:20-slim AS base
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+FROM node:20-slim
 
 WORKDIR /app
 
-# Copy workspace files
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
-COPY apps/relay/package.json ./apps/relay/
+# Copy package files
+COPY package.json package-lock.json* ./
 
 # Install dependencies
-FROM base AS deps
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile || npm install
-
-# Runtime stage
-FROM node:20-slim AS runner
-WORKDIR /app/apps/relay
-
-# Copy all source files (mjs files, no compilation needed)
-COPY apps/relay/package.json ./
-COPY apps/relay/src ./src
-COPY apps/relay/migrations ./migrations
-
-# Install production dependencies
 RUN npm install --omit=dev
+
+# Copy source files
+COPY src ./src
+COPY migrations ./migrations
 
 # Build args for traceability
 ARG COMMIT_SHA=unknown

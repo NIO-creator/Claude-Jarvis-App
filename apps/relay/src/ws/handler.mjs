@@ -144,9 +144,31 @@ async function handleAssistantSpeak(socket, state, message, app) {
     let frameCount = 0;
     let lastProvider = null;
 
+    /**
+     * Safe send that checks readyState before sending
+     * @param {string} data - JSON string to send
+     * @returns {boolean} - true if sent, false if socket closed
+     */
+    const safeSend = (data) => {
+        if (socket.readyState !== 1) { // 1 = OPEN
+            app.log.warn({ readyState: socket.readyState }, 'Socket not open, skipping send');
+            return false;
+        }
+        try {
+            socket.send(data);
+            return true;
+        } catch (err) {
+            app.log.error({ err: err.message }, 'Socket send error');
+            return false;
+        }
+    };
+
     try {
         // Emit transcript delta immediately (full text, since we have it)
-        socket.send(createTranscriptDeltaMessage(text, true));
+        if (!safeSend(createTranscriptDeltaMessage(text, true))) {
+            app.log.warn({ sessionId: state.sessionId }, 'Failed to send transcript, connection may be closed');
+            return;
+        }
 
         // Stream audio frames
         for await (const event of streamWithFallback({ text }, preferredProvider)) {
@@ -156,15 +178,25 @@ async function handleAssistantSpeak(socket, state, message, app) {
                 break;
             }
 
+            // Check socket is still open before processing event
+            if (socket.readyState !== 1) {
+                app.log.info({ sessionId: state.sessionId, frameCount }, 'Socket closed mid-stream');
+                break;
+            }
+
             switch (event.type) {
                 case 'audio':
-                    socket.send(createAudioFrameMessage(
+                    const sent = safeSend(createAudioFrameMessage(
                         event.frame.data,
                         event.frame.seq,
                         event.frame.codec,
                         event.frame.sample_rate_hz,
                         event.frame.channels
                     ));
+                    if (!sent) {
+                        app.log.warn({ sessionId: state.sessionId, frameCount }, 'Failed to send audio frame');
+                        return; // Exit early if can't send
+                    }
                     frameCount++;
                     lastProvider = event.provider;
                     break;
@@ -174,7 +206,7 @@ async function handleAssistantSpeak(socket, state, message, app) {
                         from: event.from,
                         to: event.to
                     }, 'TTS provider switched mid-stream');
-                    socket.send(createProviderSwitchedMessage(event.from, event.to));
+                    safeSend(createProviderSwitchedMessage(event.from, event.to));
                     break;
 
                 case 'error':
@@ -182,13 +214,13 @@ async function handleAssistantSpeak(socket, state, message, app) {
                         provider: event.provider,
                         error: event.error.message
                     }, 'TTS stream error');
-                    socket.send(createErrorMessage('TTS_ERROR', 'Voice synthesis failed'));
+                    safeSend(createErrorMessage('TTS_ERROR', 'Voice synthesis failed'));
                     break;
             }
         }
 
-        // Send audio end
-        socket.send(createAudioEndMessage(frameCount, lastProvider || 'unknown'));
+        // Send audio end (only if socket still open)
+        safeSend(createAudioEndMessage(frameCount, lastProvider || 'unknown'));
 
         // Persist assistant message to transcript
         if (state.sessionId && text) {
