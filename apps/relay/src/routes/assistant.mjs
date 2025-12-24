@@ -48,7 +48,8 @@ export function registerAssistantRoutes(app) {
                         message_id: { type: 'string' },
                         user_message_id: { type: 'string' },
                         provider: { type: 'string' },
-                        fallback_used: { type: 'boolean' }
+                        fallback_used: { type: 'boolean' },
+                        correlation_id: { type: 'string' }
                     }
                 }
             }
@@ -67,6 +68,12 @@ export function registerAssistantRoutes(app) {
         }
 
         const { session_id, user_text, persona_id = 'jarvis' } = request.body;
+
+        // Test header: x-jarvis-test-llm allows forcing a specific provider (openai|gemini)
+        const forceProvider = request.headers['x-jarvis-test-llm'];
+        if (forceProvider) {
+            app.log.info({ forceProvider }, 'LLM provider override requested via header');
+        }
 
         try {
             // Step 1: Validate session ownership
@@ -109,9 +116,11 @@ export function registerAssistantRoutes(app) {
             }, 'Calling LLM with fallback');
 
             // Step 6: Call LLM with automatic fallback (OpenAI → Gemini)
-            const llmResponse = await generateWithFallback({
-                messages: llmContext.messages
-            });
+            // If x-jarvis-test-llm header is set, force that provider for testing
+            const llmResponse = await generateWithFallback(
+                { messages: llmContext.messages },
+                { forceProvider: forceProvider || undefined }
+            );
             const responseText = llmResponse.content;
 
             // Step 7: Store user message (first, for proper ordering)
@@ -131,12 +140,15 @@ export function registerAssistantRoutes(app) {
             }, 'LLM response stored');
 
             // Step 9: Return response with provider info
+            // Set correlation_id header for easy access
+            reply.header('x-correlation-id', llmResponse.correlation_id);
             return {
                 response_text: responseText,
                 message_id: assistantMessage.id,
                 user_message_id: userMessage.id,
                 provider: llmResponse.provider,
-                fallback_used: llmResponse.fallback_used
+                fallback_used: llmResponse.fallback_used,
+                correlation_id: llmResponse.correlation_id
             };
         } catch (err) {
             app.log.error({

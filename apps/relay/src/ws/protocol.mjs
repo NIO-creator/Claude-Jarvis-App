@@ -161,13 +161,21 @@ export function createAudioFrameMessage(data, seq, codec, sampleRateHz, channels
  * Create an audio end message
  * @param {number} totalFrames - Total frames sent
  * @param {string} provider - Which TTS provider was used
+ * @param {string} [codec] - Audio codec (e.g., 'mp3', 'pcm')
+ * @param {number} [sample_rate_hz] - Sample rate in Hz
+ * @param {number} [channels] - Number of audio channels
+ * @param {string} [correlation_id] - Correlation ID for tracing
  * @returns {string}
  */
-export function createAudioEndMessage(totalFrames, provider) {
+export function createAudioEndMessage(totalFrames, provider, codec, sample_rate_hz, channels, correlation_id) {
     return JSON.stringify({
         type: RelayMessageType.AUDIO_END,
         total_frames: totalFrames,
         provider,
+        codec: codec || null,
+        sample_rate_hz: sample_rate_hz || null,
+        channels: channels || null,
+        correlation_id: correlation_id || null,
         timestamp: new Date().toISOString()
     });
 }
@@ -201,14 +209,16 @@ export function createPongMessage() {
 /**
  * Create a provider switched message
  * @param {string} from - Previous provider
- * @param {string} to - New provider  
+ * @param {string} to - New provider
+ * @param {string} [correlation_id] - Correlation ID for tracing
  * @returns {string}
  */
-export function createProviderSwitchedMessage(from, to) {
+export function createProviderSwitchedMessage(from, to, correlation_id) {
     return JSON.stringify({
         type: RelayMessageType.PROVIDER_SWITCHED,
         from,
         to,
+        correlation_id: correlation_id || null,
         timestamp: new Date().toISOString()
     });
 }

@@ -78,16 +78,25 @@ function shouldFallback(error) {
 /**
  * Generate LLM response with automatic fallback
  * @param {import('./providers/types.mjs').LLMRequest} request
- * @returns {Promise<import('./providers/types.mjs').LLMResponse & { fallback_used: boolean }>}
- * @throws {Error} If all providers fail
+ * @param {Object} [options] - Optional configuration
+ * @param {string} [options.forceProvider] - Force a specific provider (openai|gemini), bypasses fallback chain
+ * @param {string} [options.correlationId] - Use provided correlation ID instead of generating new one
+ * @returns {Promise<import('./providers/types.mjs').LLMResponse & { fallback_used: boolean, correlation_id: string }>}
+ * @throws {Error} If all providers fail or forced provider fails
  */
-export async function generateWithFallback(request) {
-    const correlationId = randomUUID();
+export async function generateWithFallback(request, options = {}) {
+    const correlationId = options.correlationId || randomUUID();
     const errors = [];
     let fallbackUsed = false;
 
     // Use mock chain when in mock mode, otherwise use real provider chain
-    const providerChain = getMockMode() ? MOCK_FALLBACK_ORDER : LLM_FALLBACK_ORDER;
+    let providerChain = getMockMode() ? MOCK_FALLBACK_ORDER : LLM_FALLBACK_ORDER;
+
+    // If a specific provider is forced, use only that provider (for testing)
+    if (options.forceProvider && providers[options.forceProvider]) {
+        console.log(`[LLM:${correlationId}] Forcing provider: ${options.forceProvider}`);
+        providerChain = [options.forceProvider];
+    }
 
     for (const providerName of providerChain) {
         const provider = providers[providerName];
@@ -104,6 +113,9 @@ export async function generateWithFallback(request) {
             if (fallbackUsed) {
                 console.log(`[LLM:${correlationId}] Fallback to '${providerName}' succeeded`);
             }
+
+            // Log provider used with correlation
+            console.log(`[LLM:${correlationId}] provider_used=${providerName} fallback_used=${fallbackUsed}`);
 
             return {
                 ...response,

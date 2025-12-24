@@ -95,14 +95,20 @@ export async function getActiveProvider() {
 /**
  * Stream TTS with automatic fallback chain
  * If provider fails mid-stream, attempts next provider in chain
- * @param {import('./types.mjs').TTSStreamOptions} options
- * @param {string} [preferredProvider] - Override provider selection
- * @yields {{ type: 'audio', frame: import('./types.mjs').AudioFrame } | { type: 'error', error: Error, switched: boolean }}
+ * @param {import('./types.mjs').TTSStreamOptions} options - Text and voice options
+ * @param {Object} [streamOptions] - Stream control options
+ * @param {string} [streamOptions.preferredProvider] - Override provider selection
+ * @param {string[]} [streamOptions.tts_disable] - Providers to skip (for testing fallback)
+ * @param {string} [streamOptions.correlation_id] - Correlation ID for logging
+ * @yields {{ type: 'audio', frame: import('./types.mjs').AudioFrame, provider: string } | { type: 'provider_switched', from: string, to: string, correlation_id: string } | { type: 'error', error: Error, provider: string }}
  */
-export async function* streamWithFallback(options, preferredProvider) {
+export async function* streamWithFallback(options, streamOptions = {}) {
+    const { preferredProvider, tts_disable = [], correlation_id } = streamOptions;
+    const logPrefix = correlation_id ? `[TTS:${correlation_id}]` : '[TTS]';
+
     // Mock mode takes priority for testing - bypass fallback chain entirely
     if (await providers.mock.isAvailable()) {
-        console.log('[TTS] Mock mode enabled, using mock provider');
+        console.log(`${logPrefix} Mock mode enabled, using mock provider`);
         let frameCount = 0;
         for await (const frame of providers.mock.stream(options)) {
             frameCount++;
@@ -114,12 +120,18 @@ export async function* streamWithFallback(options, preferredProvider) {
     const primaryName = preferredProvider || getPrimaryProviderName();
 
     // Build the provider chain starting from primary
-    const providerChain = [primaryName, ...getFallbackChain(primaryName)];
+    let providerChain = [primaryName, ...getFallbackChain(primaryName)];
 
     // If preferred provider is not in standard chain, just use it alone
     if (preferredProvider && !FALLBACK_ORDER.includes(preferredProvider)) {
-        providerChain.length = 0;
-        providerChain.push(preferredProvider);
+        providerChain = [preferredProvider];
+    }
+
+    // Filter out disabled providers (for per-request testing)
+    if (tts_disable && tts_disable.length > 0) {
+        const originalChain = [...providerChain];
+        providerChain = providerChain.filter(p => !tts_disable.includes(p));
+        console.log(`${logPrefix} Disabled providers: [${tts_disable.join(', ')}]. Chain: [${originalChain.join(' → ')}] → [${providerChain.join(' → ')}]`);
     }
 
     let lastError = null;
@@ -131,7 +143,7 @@ export async function* streamWithFallback(options, preferredProvider) {
 
         // Check availability
         if (!await provider.isAvailable()) {
-            console.warn(`[TTS] Provider '${providerName}' not available, skipping`);
+            console.warn(`${logPrefix} Provider '${providerName}' not available, skipping`);
             continue;
         }
 
@@ -139,8 +151,8 @@ export async function* streamWithFallback(options, preferredProvider) {
             startProvider = providerName;
         } else {
             // This is a fallback, notify
-            console.warn(`[TTS] Attempting fallback to '${providerName}'...`);
-            yield { type: 'provider_switched', from: startProvider, to: providerName };
+            console.warn(`${logPrefix} Attempting fallback to '${providerName}'...`);
+            yield { type: 'provider_switched', from: startProvider, to: providerName, correlation_id: correlation_id || null };
         }
 
         let frameCount = 0;
@@ -150,9 +162,10 @@ export async function* streamWithFallback(options, preferredProvider) {
                 yield { type: 'audio', frame, provider: providerName };
             }
             // Success! Exit the loop
+            console.log(`${logPrefix} provider=${providerName} frames=${frameCount} status=success`);
             return;
         } catch (error) {
-            console.error(`[TTS] Provider '${providerName}' failed after ${frameCount} frames:`, error.message);
+            console.error(`${logPrefix} Provider '${providerName}' failed after ${frameCount} frames:`, error.message);
             lastError = error;
             // Continue to next provider in chain
         }

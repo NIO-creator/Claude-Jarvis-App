@@ -130,19 +130,34 @@ async function handleAssistantSpeak(socket, state, message, app) {
         return;
     }
 
-    const { text, voice_provider: preferredProvider } = message;
+    // Extract message fields
+    const { text, voice_provider: preferredProvider, tts_disable, correlation_id: providedCorrelationId } = message;
+
+    // Generate correlation_id if not provided
+    const correlationId = providedCorrelationId || `tts-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
     app.log.info({
         sessionId: state.sessionId,
+        correlation_id: correlationId,
         textLength: text.length,
-        preferredProvider
+        preferredProvider,
+        tts_disable: tts_disable || []
     }, 'Starting TTS stream');
 
     state.isSpeaking = true;
     state.speakAbort = new AbortController();
 
+    // Telemetry for audio cutting diagnosis
+    const streamStartTime = Date.now();
     let frameCount = 0;
     let lastProvider = null;
+    let seqStart = null;
+    let seqEnd = null;
+    let lastSeq = null;
+    let missingSeqCount = 0;
+    let lastCodec = null;
+    let lastSampleRate = null;
+    let lastChannels = null;
 
     /**
      * Safe send that checks readyState before sending
@@ -171,7 +186,12 @@ async function handleAssistantSpeak(socket, state, message, app) {
         }
 
         // Stream audio frames
-        for await (const event of streamWithFallback({ text }, preferredProvider)) {
+        const streamOptions = {
+            preferredProvider,
+            tts_disable: tts_disable || [],
+            correlation_id: correlationId
+        };
+        for await (const event of streamWithFallback({ text }, streamOptions)) {
             // Check for abort
             if (state.speakAbort.signal.aborted) {
                 app.log.info({ sessionId: state.sessionId }, 'TTS stream aborted');
@@ -186,6 +206,23 @@ async function handleAssistantSpeak(socket, state, message, app) {
 
             switch (event.type) {
                 case 'audio':
+                    // Track sequence for audio cutting diagnosis
+                    const seq = event.frame.seq;
+                    if (seqStart === null) seqStart = seq;
+                    seqEnd = seq;
+
+                    // Detect missing sequences
+                    if (lastSeq !== null && seq !== lastSeq + 1) {
+                        missingSeqCount += (seq - lastSeq - 1);
+                        app.log.warn({ correlation_id: correlationId, expected: lastSeq + 1, got: seq }, 'Missing audio sequence detected');
+                    }
+                    lastSeq = seq;
+
+                    // Track codec info for audio.end
+                    lastCodec = event.frame.codec;
+                    lastSampleRate = event.frame.sample_rate_hz;
+                    lastChannels = event.frame.channels;
+
                     const sent = safeSend(createAudioFrameMessage(
                         event.frame.data,
                         event.frame.seq,
@@ -194,7 +231,7 @@ async function handleAssistantSpeak(socket, state, message, app) {
                         event.frame.channels
                     ));
                     if (!sent) {
-                        app.log.warn({ sessionId: state.sessionId, frameCount }, 'Failed to send audio frame');
+                        app.log.warn({ correlation_id: correlationId, frameCount }, 'Failed to send audio frame');
                         return; // Exit early if can't send
                     }
                     frameCount++;
@@ -206,7 +243,7 @@ async function handleAssistantSpeak(socket, state, message, app) {
                         from: event.from,
                         to: event.to
                     }, 'TTS provider switched mid-stream');
-                    safeSend(createProviderSwitchedMessage(event.from, event.to));
+                    safeSend(createProviderSwitchedMessage(event.from, event.to, correlationId));
                     break;
 
                 case 'error':
@@ -219,8 +256,15 @@ async function handleAssistantSpeak(socket, state, message, app) {
             }
         }
 
-        // Send audio end (only if socket still open)
-        safeSend(createAudioEndMessage(frameCount, lastProvider || 'unknown'));
+        // Send audio end (only if socket still open) - enhanced with telemetry
+        safeSend(createAudioEndMessage(
+            frameCount,
+            lastProvider || 'unknown',
+            lastCodec,
+            lastSampleRate,
+            lastChannels,
+            correlationId
+        ));
 
         // Persist assistant message to transcript
         if (state.sessionId && text) {
@@ -233,11 +277,21 @@ async function handleAssistantSpeak(socket, state, message, app) {
             }
         }
 
+        // Stream summary log for audio cutting diagnosis
+        const elapsed_ms = Date.now() - streamStartTime;
         app.log.info({
+            correlation_id: correlationId,
             sessionId: state.sessionId,
-            frameCount,
-            provider: lastProvider
-        }, 'TTS stream completed');
+            provider: lastProvider,
+            codec: lastCodec,
+            sample_rate_hz: lastSampleRate,
+            seq_start: seqStart,
+            seq_end: seqEnd,
+            total_frames: frameCount,
+            missing_seq_count: missingSeqCount,
+            elapsed_ms,
+            status: 'completed'
+        }, 'TTS stream summary');
 
     } finally {
         state.isSpeaking = false;
