@@ -39,29 +39,60 @@ export function isSTTConfigured() {
  * Transcribe audio using OpenAI Whisper
  * @param {Buffer} audioBuffer - Audio data
  * @param {string} filename - Original filename with extension
+ * @param {object} logger - Logger instance for structured logging
+ * @param {string} correlationId - Request correlation ID
  * @returns {Promise<string>} - Transcribed text
  */
-async function transcribeWithOpenAI(audioBuffer, filename) {
+async function transcribeWithOpenAI(audioBuffer, filename, logger, correlationId) {
     // Get lazily-initialized OpenAI client
     const client = getOpenAIClient();
     if (!client) {
         throw new Error('OpenAI client not available - OPENAI_API_KEY not set');
     }
 
+    const mimeType = getMimeType(filename);
+    logger?.info({ correlation_id: correlationId, filename, mimeType, bufferSize: audioBuffer.length }, '[stt] preparing OpenAI transcription request');
+
     // Use OpenAI's toFile helper to properly convert Buffer for API upload
     // This fixes APIConnectionError caused by using browser File() constructor
     const audioFile = await toFile(audioBuffer, filename, {
-        type: getMimeType(filename),
+        type: mimeType,
     });
 
-    const response = await client.audio.transcriptions.create({
-        file: audioFile,
-        model: 'whisper-1',
-        language: 'en', // Default to English for JARVIS
-    });
+    logger?.info({ correlation_id: correlationId }, '[stt] calling OpenAI Whisper API');
+    const startTime = Date.now();
 
-    return response.text;
+    try {
+        const response = await client.audio.transcriptions.create({
+            file: audioFile,
+            model: 'whisper-1',
+            language: 'en', // Default to English for JARVIS
+        });
+
+        const elapsed = Date.now() - startTime;
+        logger?.info({ correlation_id: correlationId, elapsed_ms: elapsed, transcript_len: response.text?.length }, '[stt] OpenAI Whisper API success');
+
+        return response.text;
+    } catch (openaiError) {
+        const elapsed = Date.now() - startTime;
+        // Capture full error chain for debugging
+        const errorDetails = {
+            correlation_id: correlationId,
+            elapsed_ms: elapsed,
+            error_name: openaiError.name,
+            error_message: openaiError.message,
+            error_status: openaiError.status,
+            error_code: openaiError.code,
+            error_type: openaiError.type,
+            cause_name: openaiError.cause?.name,
+            cause_message: openaiError.cause?.message,
+            cause_code: openaiError.cause?.code,
+        };
+        logger?.error(errorDetails, '[stt] OpenAI Whisper API failed');
+        throw openaiError;
+    }
 }
+
 
 /**
  * Mock transcription for development/testing
@@ -172,7 +203,7 @@ export function registerSTTRoutes(app) {
             app.log.info(`[stt] correlation_id=${correlationId} received content-type=${data.mimetype} bytes=${audioBuffer.length}`);
 
             // Transcribe with OpenAI
-            const transcript = await transcribeWithOpenAI(audioBuffer, data.filename || 'audio.webm');
+            const transcript = await transcribeWithOpenAI(audioBuffer, data.filename || 'audio.webm', app.log, correlationId);
             const elapsed = Date.now() - startTime;
 
             // Contract log: [stt] provider=... elapsed_ms=... transcript_len=...
