@@ -15,15 +15,18 @@ let openai = null;
  * @returns {OpenAI | null}
  */
 function getOpenAIClient() {
-    if (!openai && process.env.OPENAI_API_KEY) {
+    // Trim API key to remove any trailing whitespace/newlines from secrets
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    if (!openai && apiKey) {
         openai = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY,
+            apiKey: apiKey,
             timeout: 60000, // 60 second timeout for audio uploads
             maxRetries: 2,  // Retry twice on transient failures
         });
     }
     return openai;
 }
+
 
 /**
  * Check if STT is configured
