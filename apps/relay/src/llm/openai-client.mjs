@@ -4,11 +4,13 @@
  */
 
 // Configuration from environment
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// Trim API key to remove any trailing whitespace/newlines from secrets
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim();
 const LLM_MODEL = process.env.LLM_MODEL || 'gpt-4o';
 const LLM_MAX_TOKENS = parseInt(process.env.LLM_MAX_TOKENS || '1024', 10);
 const LLM_TEMPERATURE = parseFloat(process.env.LLM_TEMPERATURE || '0.7');
 const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
+
 
 /**
  * Check if OpenAI is configured
