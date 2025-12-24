@@ -17,7 +17,8 @@ export function useAudioStream() {
      */
     const initAudioContext = useCallback(() => {
         if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- webkitAudioContext is Safari legacy
+            audioContextRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
             console.log('[audio] AudioContext initialized, sampleRate:', audioContextRef.current.sampleRate);
         }
         if (audioContextRef.current.state === 'suspended') {
@@ -118,6 +119,7 @@ export function useAudioStream() {
         } else {
             console.warn('[audio] Unsupported codec:', codec);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- decode functions are stable refs
     }, [initAudioContext]);
 
     /**
@@ -134,7 +136,7 @@ export function useAudioStream() {
     const stopAll = useCallback(() => {
         console.log('[audio] Stopping all playback');
         sourceNodesRef.current.forEach(node => {
-            try { node.stop(); } catch (e) { }
+            try { node.stop(); } catch { /* ignore already stopped */ }
         });
         sourceNodesRef.current = [];
         nextStartTimeRef.current = 0;

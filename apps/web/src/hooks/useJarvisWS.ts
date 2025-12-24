@@ -82,7 +82,8 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
                         break;
 
                     case 'audio.frame':
-                        setStreamInfo({ codec: msg.codec, sample_rate: msg.sample_rate_hz });
+                        // Don't call setStreamInfo here - it triggers re-render on every frame
+                        // which can cause WS instability. Store in ref instead.
                         frameCountRef.current++;
 
                         // Contract log: Log every 25 frames
@@ -100,8 +101,11 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
                         break;
 
                     case 'audio.end':
+                        // Set stream info now that stream is complete (not during frame processing)
+                        setStreamInfo({ codec: msg.codec, sample_rate: msg.sample_rate_hz });
+
                         // Contract log: [audio] playing codec=... provider=...
-                        console.log(`[audio] playing codec=${streamInfo?.codec || msg.codec || 'unknown'} provider=${msg.provider}`);
+                        console.log(`[audio] playing codec=${msg.codec || 'unknown'} provider=${msg.provider}`);
                         console.log(`[audio] stream ended, total frames: ${frameCountRef.current}`);
 
                         setLastProvider(msg.provider);
@@ -143,9 +147,14 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
     }, [userId, sessionId]); // Removed streamInfo?.codec dependency
 
     // Auto-connect when userId and sessionId are available
+    // IMPORTANT: Do NOT include 'connect' in deps - it causes reconnection loops
+    // when any state changes. We use a ref to call connect stably.
+    const connectRef = useRef(connect);
+    connectRef.current = connect;
+
     useEffect(() => {
         if (userId && sessionId) {
-            connect();
+            connectRef.current();
         }
         return () => {
             if (wsRef.current) {
@@ -153,7 +162,8 @@ export function useJarvisWS(userId: string | null, sessionId: string | null) {
                 wsRef.current = null;
             }
         };
-    }, [userId, sessionId, connect]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId, sessionId]);
 
     /**
      * Send assistant.speak message to trigger TTS

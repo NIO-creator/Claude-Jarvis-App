@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 export interface Session {
     session_id: string;
     started_at: string;
-    bootstrap_context: any;
+    bootstrap_context: Record<string, unknown>;
 }
 
 /**
@@ -60,8 +60,9 @@ export function useSession() {
             console.log('[session] started session_id=' + data.session_id);
 
             return data;
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Session start failed';
+            setError(message);
             console.error('[session] Start error:', err);
             throw err;
         } finally {

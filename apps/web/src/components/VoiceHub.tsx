@@ -3,9 +3,39 @@ import { useSession } from '../hooks/useSession';
 import { useJarvisWS } from '../hooks/useJarvisWS';
 import { useAudioStream } from '../hooks/useAudioStream';
 import { useMicRecorder } from '../hooks/useMicRecorder';
+import { CONFIG } from '../config';
 import StatusRing from './StatusRing';
 import PushToTalk from './PushToTalk';
 import TranscriptPanel from './TranscriptPanel';
+
+/**
+ * Config Error Display Component
+ * Shown when required environment variables are missing
+ */
+const ConfigError: React.FC = () => (
+    <div className="hud-container">
+        <div className="hud-panel" style={{ textAlign: 'center' }}>
+            <div className="hub-header">
+                <div className="hub-title">JARVIS SYSTEM v1.0</div>
+                <div className="status-indicator error">CONFIG ERROR</div>
+            </div>
+            <div style={{
+                color: 'var(--hud-red, #ff3366)',
+                fontSize: '0.9rem',
+                padding: '2rem',
+                fontFamily: 'monospace'
+            }}>
+                <p style={{ marginBottom: '1rem' }}>⚠️ Configuration Error</p>
+                {CONFIG.errors.map((error, i) => (
+                    <p key={i} style={{ marginBottom: '0.5rem', opacity: 0.8 }}>{error}</p>
+                ))}
+                <p style={{ marginTop: '2rem', fontSize: '0.7rem', color: 'rgba(0,242,255,0.6)' }}>
+                    Rebuild with required environment variables
+                </p>
+            </div>
+        </div>
+    </div>
+);
 
 /**
  * VoiceHub - Main component for JARVIS voice interface
@@ -13,6 +43,7 @@ import TranscriptPanel from './TranscriptPanel';
  * Mic → STT → POST /assistant/respond → WS assistant.speak → streamed audio + transcript
  */
 const VoiceHub: React.FC = () => {
+    // All hooks must be called unconditionally (React rules of hooks)
     const { userId, session, loading, error: sessionError, startSession, resetSession } = useSession();
     const {
         state: wsState,
@@ -32,19 +63,13 @@ const VoiceHub: React.FC = () => {
     } = useMicRecorder();
 
     const [userTranscript, setUserTranscript] = useState('');
-    const [internalStatus, setInternalStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
 
-    // Sync internal status with hooks
-    useEffect(() => {
-        if (isRecording) {
-            setInternalStatus('listening');
-        } else if (isTranscribing || wsState === 'connecting') {
-            setInternalStatus('thinking');
-        } else if (isPlaying) {
-            setInternalStatus('speaking');
-        } else {
-            setInternalStatus('idle');
-        }
+    // Derive internal status from hook states (useMemo instead of setState in effect)
+    const internalStatus = React.useMemo((): 'idle' | 'listening' | 'thinking' | 'speaking' => {
+        if (isRecording) return 'listening';
+        if (isTranscribing || wsState === 'connecting') return 'thinking';
+        if (isPlaying) return 'speaking';
+        return 'idle';
     }, [isRecording, isTranscribing, isPlaying, wsState]);
 
     // Connect audio handlers
@@ -72,13 +97,13 @@ const VoiceHub: React.FC = () => {
     const handleSpeak = useCallback(async (text: string) => {
         initAudioContext(); // Ensure AudioContext is resumed on user action
         setUserTranscript(text);
-        setInternalStatus('thinking');
+        // Status automatically updates to 'thinking' via derived state when wsState changes
 
         try {
             await ask(text);
         } catch (err) {
             console.error('[VoiceHub] Failed to get response:', err);
-            setInternalStatus('idle');
+            // Status automatically returns to 'idle' via derived state
         }
     }, [ask, initAudioContext]);
 
@@ -104,7 +129,7 @@ const VoiceHub: React.FC = () => {
             handleSpeak(transcript);
         } else {
             console.log('[VoiceHub] No transcript returned');
-            setInternalStatus('idle');
+            // Status automatically returns to 'idle' via derived state
         }
     }, [stopRecording, handleSpeak]);
 
@@ -122,6 +147,11 @@ const VoiceHub: React.FC = () => {
     };
 
     const statusClass = sessionError || wsState === 'error' ? 'error' : wsState;
+
+    // Check for config errors after all hooks are called
+    if (!CONFIG.isValid) {
+        return <ConfigError />;
+    }
 
     return (
         <div className="hud-container">
