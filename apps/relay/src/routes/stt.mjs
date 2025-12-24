@@ -40,13 +40,19 @@ export function isSTTConfigured() {
  * @returns {Promise<string>} - Transcribed text
  */
 async function transcribeWithOpenAI(audioBuffer, filename) {
+    // Get lazily-initialized OpenAI client
+    const client = getOpenAIClient();
+    if (!client) {
+        throw new Error('OpenAI client not available - OPENAI_API_KEY not set');
+    }
+
     // Use OpenAI's toFile helper to properly convert Buffer for API upload
     // This fixes APIConnectionError caused by using browser File() constructor
     const audioFile = await toFile(audioBuffer, filename, {
         type: getMimeType(filename),
     });
 
-    const response = await openai.audio.transcriptions.create({
+    const response = await client.audio.transcriptions.create({
         file: audioFile,
         model: 'whisper-1',
         language: 'en', // Default to English for JARVIS
@@ -118,8 +124,13 @@ export function registerSTTRoutes(app) {
 
         // Check configuration
         if (!isSTTConfigured()) {
+            app.log.warn(`[stt] correlation_id=${correlationId} STT_NOT_CONFIGURED provider=openai`);
             return reply.status(503).send({
-                error: { code: 'NOT_CONFIGURED', message: 'STT not configured. Set OPENAI_API_KEY or STT_MOCK_MODE=true', correlation_id: correlationId }
+                error: {
+                    code: 'STT_NOT_CONFIGURED',
+                    message: 'STT provider openai requires OPENAI_API_KEY',
+                    correlation_id: correlationId
+                }
             });
         }
 

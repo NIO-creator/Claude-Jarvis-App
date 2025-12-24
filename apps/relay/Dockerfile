@@ -2,15 +2,15 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json* ./
+# Copy package files from apps/relay (build context is repo root)
+COPY apps/relay/package.json apps/relay/package-lock.json* ./
 
 # Install dependencies
 RUN npm install --omit=dev
 
-# Copy source files
-COPY src ./src
-COPY migrations ./migrations
+# Copy source files from apps/relay
+COPY apps/relay/src ./src
+COPY apps/relay/migrations ./migrations
 
 # Build args for traceability
 ARG COMMIT_SHA=unknown
