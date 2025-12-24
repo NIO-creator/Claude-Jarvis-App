@@ -1,51 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import {
+    getLLMMode,
+    setLLMMode,
+    getTTSMode,
+    setTTSMode,
+    getTTSDisable,
+    type LLMMode,
+    type TTSMode
+} from '../hooks/useTestRouting';
 
-// Storage keys for persistence
-const STORAGE_KEYS = {
-    LLM_MODE: 'jarvis_test_llm_mode',
-    TTS_MODE: 'jarvis_test_tts_mode',
-};
-
-// Type definitions
-export type LLMMode = 'default' | 'openai' | 'gemini';
-export type TTSMode = 'default' | 'force_fish' | 'force_cartesia' | 'force_elevenlabs' | 'disable_fish' | 'disable_fish_cartesia';
-
-// Get current LLM mode from localStorage
-export const getLLMMode = (): LLMMode => {
-    return (localStorage.getItem(STORAGE_KEYS.LLM_MODE) as LLMMode) || 'default';
-};
-
-// Get LLM header value (or null if default)
-export const getLLMHeader = (): string | null => {
-    const mode = getLLMMode();
-    if (mode === 'openai') return 'openai';
-    if (mode === 'gemini') return 'gemini';
-    return null;
-};
-
-// Get current TTS mode from localStorage
-export const getTTSMode = (): TTSMode => {
-    return (localStorage.getItem(STORAGE_KEYS.TTS_MODE) as TTSMode) || 'default';
-};
-
-// Get tts_disable array based on mode
-export const getTTSDisable = (): string[] => {
-    const mode = getTTSMode();
-    switch (mode) {
-        case 'disable_fish':
-            return ['fishaudio'];
-        case 'disable_fish_cartesia':
-            return ['fishaudio', 'cartesia'];
-        case 'force_cartesia':
-            return ['fishaudio']; // Disable fish to force cartesia
-        case 'force_elevenlabs':
-            return ['fishaudio', 'cartesia']; // Disable both to force elevenlabs
-        case 'force_fish':
-        case 'default':
-        default:
-            return [];
-    }
-};
+// Re-export types and helpers for convenience
+export { getLLMHeader, getTTSDisable } from '../hooks/useTestRouting';
 
 interface TestRoutingPanelProps {
     onModeChange?: () => void;
@@ -53,19 +18,19 @@ interface TestRoutingPanelProps {
 
 const TestRoutingPanel: React.FC<TestRoutingPanelProps> = ({ onModeChange }) => {
     const [expanded, setExpanded] = useState(false);
-    const [llmMode, setLLMMode] = useState<LLMMode>(getLLMMode);
-    const [ttsMode, setTTSMode] = useState<TTSMode>(getTTSMode);
+    const [llmMode, setLLMModeState] = useState<LLMMode>(getLLMMode);
+    const [ttsMode, setTTSModeState] = useState<TTSMode>(getTTSMode);
 
     // Save LLM mode to localStorage
     useEffect(() => {
-        localStorage.setItem(STORAGE_KEYS.LLM_MODE, llmMode);
+        setLLMMode(llmMode);
         console.log('[TestRouting] LLM mode changed:', llmMode);
         onModeChange?.();
     }, [llmMode, onModeChange]);
 
     // Save TTS mode to localStorage
     useEffect(() => {
-        localStorage.setItem(STORAGE_KEYS.TTS_MODE, ttsMode);
+        setTTSMode(ttsMode);
         console.log('[TestRouting] TTS mode changed:', ttsMode, 'tts_disable:', getTTSDisable());
         onModeChange?.();
     }, [ttsMode, onModeChange]);
@@ -123,7 +88,7 @@ const TestRoutingPanel: React.FC<TestRoutingPanelProps> = ({ onModeChange }) => 
                     <select
                         style={selectStyle}
                         value={llmMode}
-                        onChange={(e) => setLLMMode(e.target.value as LLMMode)}
+                        onChange={(e) => setLLMModeState(e.target.value as LLMMode)}
                     >
                         <option value="default">Default (auto)</option>
                         <option value="openai">Force OpenAI</option>
@@ -134,7 +99,7 @@ const TestRoutingPanel: React.FC<TestRoutingPanelProps> = ({ onModeChange }) => 
                     <select
                         style={selectStyle}
                         value={ttsMode}
-                        onChange={(e) => setTTSMode(e.target.value as TTSMode)}
+                        onChange={(e) => setTTSModeState(e.target.value as TTSMode)}
                     >
                         <option value="default">Default chain (Fish→Cart→11L)</option>
                         <option value="force_fish">Force FishAudio</option>

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { CONFIG } from '../config';
-import { getLLMHeader, getTTSDisable } from '../components/TestRoutingPanel';
+import { getLLMHeader, getTTSDisable } from './useTestRouting';
 
 export type WSState = 'idle' | 'connecting' | 'connected' | 'bound' | 'error';
 
