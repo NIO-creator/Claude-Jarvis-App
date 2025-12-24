@@ -9,22 +9,32 @@ import { TTSProvider } from './types.mjs';
 
 const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
 const DEFAULT_MODEL = 'eleven_turbo_v2_5';
-// Default voice: Bella (clear, professional female voice)
-const DEFAULT_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
+
 
 export class ElevenLabsTTSProvider extends TTSProvider {
     name = 'elevenlabs';
 
     constructor() {
         super();
-        this.apiKey = process.env.ELEVENLABS_API_KEY_MVP || process.env.ELEVENLABS_API_KEY;
-        // Use VOICE_ID, not AGENT_ID (no Agents Platform dependency)
-        this.voiceId = process.env.ELEVENLABS_VOICE_ID_MVP || DEFAULT_VOICE_ID;
+        // Apply .trim() to handle potential whitespace from secret injection
+        const apiKey = (process.env.ELEVENLABS_API_KEY_MVP || process.env.ELEVENLABS_API_KEY || '').trim();
+        const voiceId = (process.env.ELEVENLABS_VOICE_ID_MVP || process.env.ELEVENLABS_VOICE_ID || '').trim();
+
+        this.apiKey = apiKey || null;
+        // Only use custom voice ID if explicitly set, do NOT fall back to default
+        this.voiceId = voiceId || null;
+
+        // Diagnostic logging (no secrets)
+        console.log(`[ElevenLabs] Provider initialized - voice_id: ${this.voiceId ? this.voiceId.substring(0, 8) + '...' : 'NOT SET'} (len=${this.voiceId?.length || 0}), api_key_configured: ${!!this.apiKey}`);
     }
 
     async isAvailable() {
-        // Only require API key and voice ID (no agent_id)
-        return !!(this.apiKey && this.voiceId);
+        // Require BOTH API key AND voice ID (no default fallback)
+        const available = !!(this.apiKey && this.voiceId);
+        if (!available) {
+            console.warn(`[ElevenLabs] Not available: api_key=${!!this.apiKey}, voice_id=${!!this.voiceId}`);
+        }
+        return available;
     }
 
     /**
@@ -34,11 +44,17 @@ export class ElevenLabsTTSProvider extends TTSProvider {
      * @yields {import('./types.mjs').AudioFrame}
      */
     async *stream(options) {
+        const correlationId = options.correlation_id || 'el-' + Date.now();
+
         if (!await this.isAvailable()) {
+            console.error(`[TTS:${correlationId}] TTS_NOT_CONFIGURED_ELEVENLABS - missing API key or voice ID`);
             throw new Error('ElevenLabs not configured (requires API key + voice_id)');
         }
 
         const voiceId = options.voiceId || this.voiceId;
+
+        // Log voice_id proof at stream start
+        console.log(`[TTS:${correlationId}] elevenlabs streaming voice_id=${voiceId} (len=${voiceId.length})`);
 
         // Text-to-Speech streaming endpoint (NOT Agents Platform)
         const url = `${ELEVENLABS_API_BASE}/text-to-speech/${voiceId}/stream`;
@@ -62,6 +78,7 @@ export class ElevenLabsTTSProvider extends TTSProvider {
 
         if (!response.ok) {
             const errText = await response.text().catch(() => 'Unknown error');
+            console.error(`[TTS:${correlationId}] ElevenLabs error: ${response.status} - ${errText}`);
             throw new Error(`ElevenLabs TTS error: ${response.status} - ${errText}`);
         }
 

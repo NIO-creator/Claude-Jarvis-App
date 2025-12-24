@@ -40,13 +40,17 @@ export class CartesiaTTSProvider extends TTSProvider {
      * @yields {import('./types.mjs').AudioFrame}
      */
     async *stream(options) {
-        const correlationId = randomUUID().slice(0, 8);
+        const correlationId = options.correlation_id || randomUUID().slice(0, 8);
 
         if (!await this.isAvailable()) {
+            console.error(`[TTS:${correlationId}] TTS_NOT_CONFIGURED_CARTESIA - missing API key or voice ID`);
             throw new Error(`[${correlationId}] Cartesia not configured (missing API key or voice ID)`);
         }
 
         const voiceId = options.voiceId || this.voiceId;
+
+        // Log voice_id proof at stream start
+        console.log(`[TTS:${correlationId}] cartesia streaming voice_id=${voiceId} (len=${voiceId.length})`);
 
         // Cartesia WebSocket with API key in query params (their documented method)
         // AND with Cartesia-Version header
